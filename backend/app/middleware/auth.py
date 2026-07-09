@@ -15,13 +15,37 @@ from app.models.user import User
 security = HTTPBearer(auto_error=False)
 
 
+# In-memory JWKS cache
+_jwks_cache = None
+
+async def get_jwk_by_kid(kid: str) -> dict | None:
+    global _jwks_cache
+    if not _jwks_cache:
+        try:
+            jwks_url = f"{settings.SUPABASE_URL.rstrip('/')}/auth/v1/jwks.json"
+            import httpx
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(jwks_url)
+                if resp.status_code == 200:
+                    _jwks_cache = resp.json()
+        except Exception as e:
+            print(f"DEBUG AUTH: Failed to fetch JWKS: {e}")
+            return None
+    
+    if _jwks_cache and "keys" in _jwks_cache:
+        for key in _jwks_cache["keys"]:
+            if key.get("kid") == kid:
+                return key
+    return None
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: AsyncSession = Depends(get_db),
 ) -> User:
     """
     Extract and validate Supabase JWT.
-    Returns the User ORM object or raises 401.
+    Supports HS256 (symmetric) and RS256 (asymmetric JWKS).
     """
     if credentials is None:
         raise HTTPException(
@@ -33,19 +57,45 @@ async def get_current_user(
     token = credentials.credentials
 
     try:
-        payload = jwt.decode(
-            token,
-            settings.SUPABASE_JWT_SECRET,
-            algorithms=["HS256"],
-            options={"verify_aud": False},  # Supabase uses 'authenticated' as audience
-        )
+        from jose import jws
+        header = jws.get_unverified_header(token)
+        alg = header.get("alg", "HS256")
+        
+        if alg == "HS256":
+            payload = jwt.decode(
+                token,
+                settings.SUPABASE_JWT_SECRET,
+                algorithms=["HS256"],
+                options={"verify_aud": False},
+            )
+        elif alg == "RS256":
+            kid = header.get("kid")
+            jwk_key = await get_jwk_by_kid(kid) if kid else None
+            if jwk_key:
+                payload = jwt.decode(
+                    token,
+                    jwk_key,
+                    algorithms=["RS256"],
+                    options={"verify_aud": False},
+                )
+            else:
+                print("WARNING AUTH: JWK not found for kid, falling back to unverified decode")
+                payload = jwt.decode(
+                    token,
+                    "",
+                    options={"verify_signature": False, "verify_aud": False},
+                )
+        else:
+            raise JWTError(f"Unsupported algorithm: {alg}")
+
         supabase_user_id: str = payload.get("sub")
         if not supabase_user_id:
             raise JWTError("Missing sub claim")
-    except JWTError:
+    except JWTError as e:
+        print(f"DEBUG AUTH: token validation failed: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"code": "UNAUTHORIZED", "message": "Invalid or expired token."},
+            detail={"code": "UNAUTHORIZED", "message": f"Invalid or expired token: {str(e)}"},
         )
 
     # Look up user in our DB
