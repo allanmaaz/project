@@ -68,14 +68,14 @@ async def get_current_user(
                 algorithms=["HS256"],
                 options={"verify_aud": False},
             )
-        elif alg == "RS256":
+        elif alg in ("RS256", "ES256"):
             kid = header.get("kid")
             jwk_key = await get_jwk_by_kid(kid) if kid else None
             if jwk_key:
                 payload = jwt.decode(
                     token,
                     jwk_key,
-                    algorithms=["RS256"],
+                    algorithms=["RS256", "ES256"],
                     options={"verify_aud": False},
                 )
             else:
