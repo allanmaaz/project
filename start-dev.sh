@@ -16,6 +16,8 @@ fi
 
 echo "⚡ Installing backend dependencies..."
 source backend/venv/bin/activate
+export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
+pip install --upgrade pip
 pip install -r backend/requirements.txt
 
 # ── Step 2: Check Node environment ──
