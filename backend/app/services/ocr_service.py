@@ -97,17 +97,23 @@ class OCRService:
         """Use Gemini Vision to extract text from complex images (free tier)."""
         import google.generativeai as genai
         from PIL import Image
+        import asyncio
 
         # Convert to PIL Image for Gemini
         if mime_type == "application/pdf":
-            # Can't directly pass PDF to Gemini — use Tesseract result
             raise ValueError("PDF passed to vision OCR")
 
         img = Image.open(io.BytesIO(image_bytes))
-        response = self.gemini.generate_content([
-            "Extract ALL text from this image exactly as it appears. "
-            "Preserve line breaks and structure. Output ONLY the extracted text, nothing else.",
-            img
-        ])
+        
+        # Instantiate a clean model without JSON constraint for OCR
+        model = genai.GenerativeModel("gemini-2.5-flash")
+        response = await asyncio.to_thread(
+            model.generate_content,
+            [
+                "Extract ALL text from this image exactly as it appears. "
+                "Preserve line breaks and structure. Output ONLY the extracted text, nothing else.",
+                img
+            ]
+        )
         text = clean_text(response.text or "")
         return OCRResult(text=text, confidence=0.92, source="gemini_vision")

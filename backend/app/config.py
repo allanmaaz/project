@@ -22,8 +22,8 @@ class Settings(BaseSettings):
 
     # AI — Gemini (FREE)
     GEMINI_API_KEY: str = ""
-    GEMINI_MODEL_FAST: str = "gemini-1.5-flash"      # for classification, suggestions
-    GEMINI_MODEL_FULL: str = "gemini-1.5-flash"      # for full analysis
+    GEMINI_MODEL_FAST: str = "gemini-2.5-flash"      # for classification, suggestions
+    GEMINI_MODEL_FULL: str = "gemini-2.5-flash"      # for full analysis
     GEMINI_MAX_OUTPUT_TOKENS: int = 8192
     GEMINI_TEMPERATURE: float = 0.2
 

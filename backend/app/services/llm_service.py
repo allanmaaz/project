@@ -18,7 +18,8 @@ class LLMService:
         if not settings.GEMINI_API_KEY:
             raise RuntimeError("GEMINI_API_KEY is not set. Get your free key at https://aistudio.google.com/app/apikey")
 
-        genai.configure(api_key=settings.GEMINI_API_KEY)
+        # Configure to use REST transport instead of gRPC to prevent connection hangs
+        genai.configure(api_key=settings.GEMINI_API_KEY, transport="rest")
 
         # Flash model — free tier, very fast, 1M context
         self.model = genai.GenerativeModel(
