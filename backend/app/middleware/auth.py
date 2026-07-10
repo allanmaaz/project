@@ -25,10 +25,16 @@ async def get_jwk_by_kid(kid: str) -> dict | None:
         try:
             jwks_url = f"{settings.SUPABASE_URL.rstrip('/')}/auth/v1/jwks.json"
             import httpx
+            headers = {
+                "apiKey": settings.SUPABASE_ANON_KEY,
+                "Authorization": f"Bearer {settings.SUPABASE_ANON_KEY}"
+            }
             async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(jwks_url)
+                resp = await client.get(jwks_url, headers=headers)
                 if resp.status_code == 200:
                     _jwks_cache = resp.json()
+                else:
+                    print(f"DEBUG AUTH: JWKS fetch returned status {resp.status_code}: {resp.text}")
         except Exception as e:
             print(f"DEBUG AUTH: Failed to fetch JWKS: {e}")
             return None
