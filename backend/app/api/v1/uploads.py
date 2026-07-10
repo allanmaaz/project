@@ -240,3 +240,28 @@ async def get_detections(
         "has_detections": bool(upload.detections),
         "has_video": bool(upload.video_detections),
     }
+
+
+from fastapi.responses import Response
+
+@router.get("/{upload_id}/raw")
+async def get_raw_file(
+    upload_id: str,
+    current_user: User = CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Stream the raw file from Supabase Storage."""
+    result = await db.execute(select(Upload).where(Upload.id == uuid.UUID(upload_id)))
+    upload = result.scalar_one_or_none()
+
+    if not upload:
+        raise_http(NotFoundError("Upload"), 404)
+    if upload.user_id != current_user.id:
+        raise_http(ForbiddenError(), 403)
+
+    try:
+        # download returns bytes
+        file_bytes = supabase_client.storage.from_("user-uploads").download(upload.storage_path)
+        return Response(content=file_bytes, media_type=upload.file_type)
+    except Exception as e:
+        raise_http(ClarifyBaseError(f"Failed to retrieve file from cloud storage: {str(e)}"), 500)
