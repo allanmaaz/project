@@ -23,7 +23,7 @@ async def get_jwk_by_kid(kid: str) -> dict | None:
     global _jwks_cache
     if not _jwks_cache:
         try:
-            jwks_url = f"{settings.SUPABASE_URL.rstrip('/')}/auth/v1/jwks.json"
+            jwks_url = f"{settings.SUPABASE_URL.rstrip('/')}/auth/v1/.well-known/jwks.json"
             import httpx
             headers = {
                 "apiKey": settings.SUPABASE_ANON_KEY,
