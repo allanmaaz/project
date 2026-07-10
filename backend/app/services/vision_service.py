@@ -101,18 +101,17 @@ def _flood_relabel(detections: list[dict]) -> list[dict]:
 
 
 class VisionService:
-    _yolo_model = None   # class-level cache — loads once per process
+    _yolo_models: dict[str, Any] = {}
 
     @classmethod
-    def _get_yolo(cls):
-        if cls._yolo_model is None:
+    def _get_yolo(cls, model_name: str = "yolov9c"):
+        if model_name not in cls._yolo_models:
             from ultralytics import YOLO
-            # YOLOv9c — compact model: 69.0% mAP50, GELAN+PGI architecture
-            # Requires ultralytics >= 8.1.0 (we have 8.4.92) ✅
-            # Auto-downloads ~51MB on first use
-            cls._yolo_model = YOLO("yolov9c.pt")
-            logger.info("[Vision] YOLOv9c loaded on CPU")
-        return cls._yolo_model
+            # Map standard model names to files
+            model_file = "yolov9c.pt" if model_name == "yolov9c" else "yolov8n.pt"
+            cls._yolo_models[model_name] = YOLO(model_file)
+            logger.info(f"[Vision] {model_name} loaded on CPU (weights: {model_file})")
+        return cls._yolo_models[model_name]
 
     async def detect(
         self,
@@ -120,14 +119,15 @@ class VisionService:
         mime_type: str = "image/jpeg",
         run_sam: bool = False,
         conf_threshold: float = 0.22,
+        model_name: str = "yolov9c",
+        imgsz: int = 640,
     ) -> dict:
         """
-        Run YOLOv9c on image. Returns detections with bounding boxes + counts.
+        Run YOLO on image. Returns detections with bounding boxes + counts.
         Runs in a thread pool so it doesn't block the async event loop.
-        ~8-15 seconds on Intel i5 (accuracy >> speed for disaster analysis).
         """
         return await asyncio.to_thread(
-            self._detect_sync, image_bytes, mime_type, False, conf_threshold
+            self._detect_sync, image_bytes, mime_type, False, conf_threshold, imgsz, model_name
         )
 
     def _detect_sync(
@@ -137,12 +137,13 @@ class VisionService:
         run_sam: bool,
         conf_threshold: float,
         imgsz: int = 640,   # Standard YOLO resolution — detects small/distant objects
+        model_name: str = "yolov9c",
     ) -> dict:
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         img_w, img_h = img.size
         img_np = np.array(img)
 
-        model = self._get_yolo()
+        model = self._get_yolo(model_name)
         results = model(
             img_np,
             conf=conf_threshold,

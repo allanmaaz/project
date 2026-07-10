@@ -19,10 +19,11 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # Intel i5 optimization:
-# At 30fps video: skip 150 frames = analyze 1 frame every 5 seconds
-# This keeps total YOLO time under ~40s for a 60s video on CPU
-FRAME_SAMPLE_INTERVAL = 150   # 1 frame per 5 seconds at 30fps
-MAX_FRAMES_TO_ANALYZE = 20    # cap: 20 frames × ~2s/frame = ~40s max
+# For smooth timeline playback: sample 1 frame every 10 frames (~3 frames per second at 30fps)
+# To keep CPU time low, we use YOLOv8n (nano) at imgsz=320.
+# ~0.15 seconds per frame = ~15-20 seconds total for a 30s video.
+FRAME_SAMPLE_INTERVAL = 10    # 3 frames per second at 30fps
+MAX_FRAMES_TO_ANALYZE = 150   # Up to 50 seconds of video timeline
 
 
 class VideoService:
@@ -64,6 +65,8 @@ class VideoService:
 
             # Key frames for thumbnail grid
             key_frames_bgr = []
+            best_frame_bgr = None
+            max_objects = -1
 
             while cap.isOpened() and sampled < MAX_FRAMES_TO_ANALYZE:
                 ret, frame_bgr = cap.read()
@@ -80,8 +83,16 @@ class VideoService:
                     pil_img.save(buf, format="JPEG", quality=70)
                     frame_bytes = buf.getvalue()
 
-                    # Run YOLO (sync, already in thread)
-                    det_result = vision_service._detect_sync(frame_bytes, "image/jpeg", False, 0.35)
+                    # Run YOLOv8n on CPU (fast, ~0.15s per frame at imgsz=320)
+                    det_result = vision_service._detect_sync(
+                        frame_bytes, "image/jpeg", False, 0.28, imgsz=320, model_name="yolov8n"
+                    )
+
+                    # Track frame with most objects for visual pipeline context
+                    total_objs = det_result["total_objects"]
+                    if total_objs > max_objects:
+                        max_objects = total_objs
+                        best_frame_bgr = frame_bgr.copy()
 
                     frame_data = {
                         "frame_index": frame_idx,
@@ -109,6 +120,18 @@ class VideoService:
 
             cap.release()
 
+            # Convert best frame to JPEG bytes
+            best_frame_bytes = None
+            if best_frame_bgr is not None:
+                try:
+                    best_rgb = cv2.cvtColor(best_frame_bgr, cv2.COLOR_BGR2RGB)
+                    pil_best = Image.fromarray(best_rgb)
+                    buf_best = io.BytesIO()
+                    pil_best.save(buf_best, format="JPEG", quality=80)
+                    best_frame_bytes = buf_best.getvalue()
+                except Exception as e:
+                    logger.warning(f"[Video] Failed to serialize best frame: {e}")
+
             # Build trend data — person count over time
             person_trend = [
                 {"t": f["timestamp_sec"], "count": f["summary"].get("person", 0)}
@@ -129,6 +152,7 @@ class VideoService:
                 "aggregate_summary": aggregate_summary,
                 "person_trend": person_trend,
                 "thumbnail_grid": thumbnail_grid_bytes,  # bytes for upload
+                "best_frame_bytes": best_frame_bytes,    # representative frame for LLM visual pipeline
             }
         finally:
             try:
