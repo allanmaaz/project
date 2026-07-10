@@ -73,6 +73,12 @@ PATTERNS: dict[str, list[tuple[str, float]]] = {
         (r"\b(app|ios|android|settings|menu|button|dialog|popup)\b", 1.5),
         (r"\b(wifi|battery|signal|home screen|lock screen)\b", 2.0),
     ],
+    "disaster_rescue": [
+        (r"\b(flood|water level|rescue|stranded|evacuate|evacuation)\b", 3.0),
+        (r"\b(deluge|submerged|boat rescue|heli-rescue|disaster|emergency response)\b", 3.0),
+        (r"\b(rising waters|isolated persons|blocked roads|s.o.s.|sos)\b", 2.5),
+        (r"\b(dispatch|first responders|civil defense|ndrf|fema)\b", 2.0),
+    ],
 }
 
 

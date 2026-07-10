@@ -10,6 +10,7 @@ import SummaryCard from "../../../../components/analysis/SummaryCard";
 import AnalysisSectionComponent from "../../../../components/analysis/AnalysisSection";
 import ChatPanel from "../../../../components/chat/ChatPanel";
 import ChatBottomSheet from "../../../../components/chat/ChatBottomSheet";
+import DisasterAnalysis from "../../../../components/analysis/DisasterAnalysis";
 import { toast } from "sonner";
 
 export default function AnalysisPage() {
@@ -86,6 +87,10 @@ export default function AnalysisPage() {
         {/* Left Side: Summary + Sections (lg: 8 cols) */}
         <div className="lg:col-span-8 space-y-6">
           <SummaryCard summary={data.summary} />
+
+          {data.document_type === "disaster_rescue" && data.disaster_data && (
+            <DisasterAnalysis data={data.disaster_data} />
+          )}
 
           {/* Collapsible details list */}
           <div className="space-y-4">

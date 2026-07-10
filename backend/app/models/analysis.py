@@ -21,6 +21,7 @@ class AnalysisResult(Base):
     spending_data: Mapped[dict | None] = mapped_column(JSONB)
     medical_data: Mapped[dict | None] = mapped_column(JSONB)
     scam_data: Mapped[dict | None] = mapped_column(JSONB)
+    disaster_data: Mapped[dict | None] = mapped_column(JSONB)
     risk_breakdown: Mapped[dict | None] = mapped_column(JSONB)
     model_used: Mapped[str] = mapped_column(String(50), nullable=False)
     token_usage: Mapped[dict | None] = mapped_column(JSONB)

@@ -6,7 +6,7 @@ import secrets
 from datetime import datetime, timedelta
 
 from app.database import get_db
-from app.middleware.auth import CurrentUser
+from app.middleware.auth import CurrentUser, CurrentUserFromQuery
 from app.models.upload import Upload, SharedAnalysis
 from app.models.analysis import AnalysisResult
 from app.models.user import User
@@ -61,6 +61,7 @@ async def get_analysis(
         spending_data=analysis.spending_data,
         medical_data=analysis.medical_data,
         scam_data=analysis.scam_data,
+        disaster_data=analysis.disaster_data,
         risk_breakdown=analysis.risk_breakdown,
         model_used=analysis.model_used,
         created_at=analysis.created_at,
@@ -70,7 +71,7 @@ async def get_analysis(
 @router.get("/{upload_id}/export")
 async def export_analysis_pdf(
     upload_id: str,
-    current_user: User = CurrentUser,
+    current_user: User = CurrentUserFromQuery,
     db: AsyncSession = Depends(get_db)
 ):
     """Export the structured analysis as an Apple-inspired clean PDF."""

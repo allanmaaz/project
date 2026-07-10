@@ -2,7 +2,7 @@
 JWT authentication middleware using Supabase JWT tokens.
 Validates the Bearer token, extracts user, injects into request.state.
 """
-from fastapi import Request, HTTPException, status, Depends
+from fastapi import Request, HTTPException, status, Depends, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +17,7 @@ security = HTTPBearer(auto_error=False)
 
 # In-memory JWKS cache
 _jwks_cache = None
+
 
 async def get_jwk_by_kid(kid: str) -> dict | None:
     global _jwks_cache
@@ -39,29 +40,8 @@ async def get_jwk_by_kid(kid: str) -> dict | None:
     return None
 
 
-async def get_current_user(
-    request: Request,
-    credentials: HTTPAuthorizationCredentials | None = Depends(security),
-    db: AsyncSession = Depends(get_db),
-) -> User:
-    """
-    Extract and validate Supabase JWT.
-    Supports HS256 (symmetric) and RS256 (asymmetric JWKS).
-    """
-    token = None
-    if credentials:
-        token = credentials.credentials
-    else:
-        # Fallback to query parameter "token" for browser direct requests (e.g. PDF export / downloads)
-        token = request.query_params.get("token")
-
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"code": "UNAUTHORIZED", "message": "Authentication required."},
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
+async def _validate_token(token: str, db: AsyncSession) -> User:
+    """Validate JWT token and return user."""
     try:
         from jose import jws
         header = jws.get_unverified_header(token)
@@ -85,12 +65,8 @@ async def get_current_user(
                     options={"verify_aud": False},
                 )
             else:
-                print("WARNING AUTH: JWK not found for kid, falling back to unverified decode")
-                payload = jwt.decode(
-                    token,
-                    "",
-                    options={"verify_signature": False, "verify_aud": False},
-                )
+                print("WARNING AUTH: JWK not found for kid")
+                raise JWTError("JWK not found for token")
         else:
             raise JWTError(f"Unsupported algorithm: {alg}")
 
@@ -112,7 +88,6 @@ async def get_current_user(
 
     if user is None:
         # Auto-create user record if it doesn't exist yet
-        # (Supabase trigger should handle this, but this is a safety net)
         email = payload.get("email", "")
         user = User(
             supabase_user_id=supabase_user_id,
@@ -126,5 +101,34 @@ async def get_current_user(
     return user
 
 
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """
+    Extract and validate Supabase JWT from Authorization header only.
+    """
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"code": "UNAUTHORIZED", "message": "Authentication required."},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    return await _validate_token(credentials.credentials, db)
+
+
+async def get_current_user_from_query(
+    token: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """
+    Extract and validate Supabase JWT from query parameter.
+    Used for direct browser requests (PDF export, shared links).
+    """
+    return await _validate_token(token, db)
+
+
 # Alias for cleaner endpoint signatures
 CurrentUser = Depends(get_current_user)
+CurrentUserFromQuery = Depends(get_current_user_from_query)

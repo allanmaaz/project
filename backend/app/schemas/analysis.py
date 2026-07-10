@@ -67,6 +67,15 @@ class ScamData(BaseModel):
     safe_reply: str | None = None
 
 
+class DisasterData(BaseModel):
+    severity_index: float  # 0.0 to 10.0
+    affected_areas: list[str] = []
+    trapped_count_est: int = 0
+    dispatch_queue: list[dict] = []  # [{"priority": 1, "zone": "...", "urgency": "...", "assigned_team": "..."}]
+    team_allocation: list[dict] = []  # [{"unit": "...", "status": "...", "personnel": 4}]
+    safety_advisories: list[str] = []
+
+
 # ── Full analysis response ────────────────────────────────────────────────
 
 class AnalysisResponse(BaseModel):
@@ -87,6 +96,7 @@ class AnalysisResponse(BaseModel):
     spending_data: dict | None = None
     medical_data: MedicalData | None = None
     scam_data: ScamData | None = None
+    disaster_data: DisasterData | None = None
     risk_breakdown: dict | None = None
     model_used: str
     created_at: datetime
@@ -107,6 +117,7 @@ class PipelineResult(BaseModel):
     spending_data: dict | None = None
     medical_data: dict | None = None
     scam_data: dict | None = None
+    disaster_data: dict | None = None
     risk_breakdown: dict | None = None
     auto_title: str = "Document Analysis"
     model_used: str = "gemini-1.5-flash"

@@ -82,7 +82,7 @@ async def create_upload(
 
     # Dispatch to asynchronous processing pipeline
     analysis_srv = get_analysis_service()
-    background_tasks.add_task(analysis_srv.process_upload, upload_id, db)
+    background_tasks.add_task(analysis_srv.process_upload, upload_id)
 
     return UploadCreateResponse(upload_id=upload_id)
 

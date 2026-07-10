@@ -565,12 +565,60 @@ Return this exact JSON structure:
 }}"""
 
 
+def get_disaster_prompt(output_language: str = "en") -> str:
+    return f"""You are an emergency management and disaster response coordinator. Analyze disaster reports, flood alerts, and rescue requests.
+
+YOUR ROLE: Extract critical locations, estimate severity, identify trapped count estimates, and generate a structured dispatch and rescue allocation plan for the emergency response teams (e.g. Boat squads, medical, logistics).
+
+OUTPUT LANGUAGE: {output_language}
+
+{_json_base()}
+
+Return this exact JSON structure:
+{{
+  "summary": "3-5 sentence emergency overview: situation, locations affected, severity, and urgent rescue actions needed",
+  "auto_title": "Short title like 'Mumbai Flood SOS Report - Bandra' or 'Municipal Alert - Red Warning'",
+  "sections": [
+    {{
+      "id": "overview",
+      "title": "Disaster Status Overview",
+      "type": "danger",
+      "content": "Description of the flooding and emergency conditions",
+      "items": ["Water level: ...", "Road blocks: ..."],
+      "icon": "ShieldAlert"
+    }}
+  ],
+  "warnings": [
+    {{"severity": "critical", "title": "Warning title", "description": "Warning detail"}}
+  ],
+  "recommendations": [
+    {{"priority": "high", "action": "Action to take", "reason": "Why this matters"}}
+  ],
+  "timeline": [
+    {{"date": "H+0", "label": "Initial team dispatch", "type": "action"}}
+  ],
+  "disaster_data": {{
+    "severity_index": 7.5,
+    "affected_areas": ["Area 1", "Area 2"],
+    "trapped_count_est": 45,
+    "dispatch_queue": [
+      {{"priority": 1, "zone": "Zone A", "urgency": "critical", "assigned_team": "Boat Squad 1"}}
+    ],
+    "team_allocation": [
+      {{"unit": "Boat Squad 1", "status": "dispatching", "personnel": 4}}
+    ],
+    "safety_advisories": ["Advisory 1", "Advisory 2"]
+  }}
+}}"""
+
+
 def get_chat_system_prompt(doc_type: str, output_language: str = "en") -> str:
     """Returns the chat system prompt for document Q&A."""
     disclaimers = {
         "medical": "\n⚕️ Note: For medical advice, always consult a qualified healthcare professional.",
         "legal_contract": "\n⚖️ Note: For legal decisions, consult a qualified lawyer.",
         "scam_message": "\n🔒 Note: If you're in doubt, never click links or share personal information.",
+        "disaster_rescue": "\n🚨 Note: Emergency plans are AI recommendations. Check local disaster reports and weather updates before on-ground actions.",
     }
     disclaimer = disclaimers.get(doc_type, "")
 

@@ -11,9 +11,11 @@ import io
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
+from app.database import AsyncSessionLocal
 from supabase import create_client, Client
 
 from app.config import settings
+from app.database import AsyncSessionLocal
 from app.models.upload import Upload
 from app.models.analysis import AnalysisResult
 from app.models.user import User
@@ -27,6 +29,7 @@ from app.pipelines.scam_pipeline import ScamPipeline
 from app.pipelines.government_pipeline import GovernmentPipeline
 from app.pipelines.receipt_pipeline import ReceiptPipeline
 from app.pipelines.screenshot_pipeline import ScreenshotPipeline
+from app.pipelines.disaster_pipeline import DisasterPipeline
 from app.utils.file_utils import generate_thumbnail, detect_mime_type
 from app.utils.cache import analysis_cache, hash_file
 from app.utils.exceptions import AnalysisFailedError
@@ -42,6 +45,7 @@ PIPELINE_MAP = {
     "receipt_invoice": ReceiptPipeline,
     "scam_message": ScamPipeline,
     "screenshot_ui": ScreenshotPipeline,
+    "disaster_rescue": DisasterPipeline,
     "unknown": ScreenshotPipeline,  # Fallback to screenshot (generic analysis)
 }
 
@@ -54,10 +58,18 @@ class AnalysisService:
         self.classifier = ClassificationService()
         self.supabase: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
 
-    async def process_upload(self, upload_id: str, db: AsyncSession) -> None:
+    async def process_upload(self, upload_id: str) -> None:
         """
         Main background processing function.
         Called by FastAPI BackgroundTasks after file is uploaded to Supabase Storage.
+        Creates its own database session to avoid using a closed request-scoped session.
+        """
+        async with AsyncSessionLocal() as db:
+            await self._process_upload_with_db(upload_id, db)
+
+    async def _process_upload_with_db(self, upload_id: str, db: AsyncSession) -> None:
+        """
+        Internal method that does the actual processing with a provided DB session.
         """
         # Fetch upload record
         result = await db.execute(select(Upload).where(Upload.id == upload_id))
@@ -184,8 +196,9 @@ class AnalysisService:
                 spending_data=pipeline_result.get("spending_data"),
                 medical_data=pipeline_result.get("medical_data"),
                 scam_data=pipeline_result.get("scam_data"),
+                disaster_data=pipeline_result.get("disaster_data"),
                 risk_breakdown=pipeline_result.get("risk_breakdown"),
-                model_used=pipeline_result.get("model_used", "gemini-1.5-flash"),
+                model_used=pipeline_result.get("model_used", "gemini-2.5-flash"),
                 token_usage=pipeline_result.get("token_usage", {}),
             )
             db.add(analysis_record)
@@ -220,22 +233,22 @@ class AnalysisService:
             await db.commit()
 
         except Exception as e:
-            # Mark as failed with error message
-            await db.rollback()
+            # Mark as failed with error message using a fresh session
             error_msg = str(e)[:500]
-            try:
-                await db.execute(
-                    update(Upload)
-                    .where(Upload.id == upload_id)
-                    .values(
-                        status="failed",
-                        error_message=error_msg,
-                        updated_at=datetime.utcnow(),
+            async with AsyncSessionLocal() as error_db:
+                try:
+                    await error_db.execute(
+                        update(Upload)
+                        .where(Upload.id == upload_id)
+                        .values(
+                            status="failed",
+                            error_message=error_msg,
+                            updated_at=datetime.utcnow(),
+                        )
                     )
-                )
-                await db.commit()
-            except Exception:
-                pass
+                    await error_db.commit()
+                except Exception:
+                    pass
 
     async def _download_file(self, storage_path: str) -> bytes:
         """Download a file from Supabase Storage."""
