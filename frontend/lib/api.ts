@@ -9,6 +9,8 @@ export class ApiError extends Error {
     super(message);
     this.name = "ApiError";
   }
+}
+
 class ApiClient {
   private get baseUrl() {
     const url = process.env.NEXT_PUBLIC_API_URL;
