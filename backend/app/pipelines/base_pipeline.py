@@ -36,13 +36,60 @@ class BasePipeline(ABC):
         return data.get(key, default) if isinstance(data, dict) else default
 
     def _enrich_result(self, raw: dict, text: str) -> dict:
-        """Add entities extracted from raw text to the result."""
+        """Add entities extracted from raw text to the result and sanitize collections."""
+        # Ensure raw is a dictionary
+        if not isinstance(raw, dict):
+            raw = {}
+
         entities = extract_all_entities(text)
         raw["detected_entities"] = entities
         raw.setdefault("sections", [])
-        raw.setdefault("warnings", [])
-        raw.setdefault("recommendations", [])
         raw.setdefault("timeline", [])
         raw.setdefault("auto_title", "Document Analysis")
         raw.setdefault("summary", "")
+
+        # Sanitize recommendations list to strictly match the expected Recommendation schema
+        recs = raw.get("recommendations")
+        clean_recs = []
+        if isinstance(recs, list):
+            for item in recs:
+                if isinstance(item, str):
+                    clean_recs.append({
+                        "priority": "medium",
+                        "action": item,
+                        "reason": "Suggested action based on document analysis."
+                    })
+                elif isinstance(item, dict):
+                    priority_val = str(item.get("priority") or "medium").lower()
+                    if priority_val not in ("critical", "high", "medium", "low"):
+                        priority_val = "medium"
+                    clean_recs.append({
+                        "priority": priority_val,
+                        "action": str(item.get("action") or "Review document details"),
+                        "reason": str(item.get("reason") or "Identified during analysis.")
+                    })
+        raw["recommendations"] = clean_recs
+
+        # Sanitize warnings list to strictly match the expected Warning schema
+        warns = raw.get("warnings")
+        clean_warns = []
+        if isinstance(warns, list):
+            for item in warns:
+                if isinstance(item, str):
+                    clean_warns.append({
+                        "severity": "medium",
+                        "title": "Alert",
+                        "description": item
+                    })
+                elif isinstance(item, dict):
+                    severity_val = str(item.get("severity") or "medium").lower()
+                    if severity_val not in ("critical", "high", "medium"):
+                        severity_val = "medium"
+                    clean_warns.append({
+                        "severity": severity_val,
+                        "title": str(item.get("title") or "Notice"),
+                        "description": str(item.get("description") or "Potential issue detected.")
+                    })
+        raw["warnings"] = clean_warns
+
         return raw

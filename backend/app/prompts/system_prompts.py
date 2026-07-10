@@ -505,8 +505,12 @@ Return this exact JSON structure:
       "icon": "Wrench"
     }}
   ],
-  "warnings": [],
-  "recommendations": [],
+  "warnings": [
+    {"severity": "medium", "title": "Warning title", "description": "Warning detail"}
+  ],
+  "recommendations": [
+    {"priority": "medium", "action": "Action to take", "reason": "Why this matters"}
+  ],
   "timeline": []
 }}"""
 
@@ -551,8 +555,12 @@ Return this exact JSON structure:
       "icon": "CheckSquare"
     }}
   ],
-  "warnings": [],
-  "recommendations": [],
+  "warnings": [
+    {"severity": "medium", "title": "Warning title", "description": "Warning detail"}
+  ],
+  "recommendations": [
+    {"priority": "medium", "action": "Action to take", "reason": "Why this matters"}
+  ],
   "timeline": []
 }}"""
 
