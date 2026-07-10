@@ -158,7 +158,10 @@ class LLMService:
         provider = self._get_provider()
         if provider == "ollama":
             print("[LLMService] Routing analyze request to Ollama...")
-            return await self._analyze_ollama(system_prompt, text_content, image_bytes)
+            try:
+                return await self._analyze_ollama(system_prompt, text_content, image_bytes)
+            except Exception as e:
+                print(f"[LLMService] Ollama failed: {e}. Falling back to Gemini Cloud...")
 
         # Gemini execution flow
         prompt_parts = [text_content]
@@ -430,9 +433,7 @@ class LLMService:
                                     yield token
                 return
             except Exception as e:
-                print(f"[Ollama] stream_chat failed: {e}")
-                yield f"\n\nSorry, I encountered an error communicating with Ollama: {e}"
-                return
+                print(f"[Ollama] stream_chat failed: {e}. Falling back to Gemini...")
 
         # Gemini execution flow
         gemini_history = []
