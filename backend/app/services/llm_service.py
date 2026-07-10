@@ -455,7 +455,10 @@ class LLMService:
             except Exception as e:
                 print(f"[Ollama] stream_chat failed: {e}. Falling back to Gemini...")
 
-        # Gemini execution flow — multi-model fallback on quota errors
+        # Gemini execution flow — true token-by-token streaming via Queue
+        # The problem with asyncio.to_thread(send_message, stream=True):
+        # to_thread blocks until ALL tokens arrive in the thread, THEN yields them.
+        # Fix: run the entire iteration in a thread, pipe tokens via asyncio.Queue.
         gemini_history = []
         for msg in history[:-1]:  # all but last
             role = "user" if msg["role"] == "user" else "model"
@@ -472,33 +475,62 @@ class LLMService:
             "gemini-1.5-flash",
         ]
 
-        last_error = None
-        for model_name in fallback_model_names:
-            try:
-                print(f"[LLMService] stream_chat attempting model: {model_name}")
-                chat_model = genai.GenerativeModel(
-                    model_name=model_name,
-                    system_instruction=system_instruction,
-                    generation_config=genai.types.GenerationConfig(
-                        temperature=0.3,
-                        max_output_tokens=2048,
-                    ),
-                )
-                chat_session = chat_model.start_chat(history=gemini_history)
-                response = await asyncio.to_thread(
-                    chat_session.send_message,
-                    current_message,
-                    stream=True,
-                )
-                for chunk in response:
-                    if chunk.text:
-                        yield chunk.text
-                return  # Success — exit generator
-            except Exception as e:
-                last_error = e
-                print(f"[LLMService] stream_chat failed with {model_name}: {e}")
+        loop = asyncio.get_event_loop()
+        _SENTINEL = object()  # signals end of stream
 
-        yield f"\n\nI'm temporarily unavailable due to API limits. Please try again in a moment."
+        for model_name in fallback_model_names:
+            queue: asyncio.Queue = asyncio.Queue()
+            succeeded = False
+
+            def _stream_in_thread(q: asyncio.Queue, lp: asyncio.AbstractEventLoop, mn: str) -> None:
+                """Run Gemini streaming in a background thread, push tokens to queue."""
+                try:
+                    cm = genai.GenerativeModel(
+                        model_name=mn,
+                        system_instruction=system_instruction,
+                        generation_config=genai.types.GenerationConfig(
+                            temperature=0.3,
+                            max_output_tokens=2048,
+                        ),
+                    )
+                    session = cm.start_chat(history=gemini_history)
+                    resp = session.send_message(current_message, stream=True)
+                    for c in resp:
+                        if c.text:
+                            lp.call_soon_threadsafe(q.put_nowait, c.text)
+                    lp.call_soon_threadsafe(q.put_nowait, _SENTINEL)
+                except Exception as exc:
+                    lp.call_soon_threadsafe(q.put_nowait, exc)
+
+            try:
+                print(f"[LLMService] stream_chat → {model_name}")
+                import threading
+                t = threading.Thread(
+                    target=_stream_in_thread,
+                    args=(queue, loop, model_name),
+                    daemon=True,
+                )
+                t.start()
+
+                # Drain queue — yield each token immediately as it arrives
+                while True:
+                    item = await queue.get()
+                    if item is _SENTINEL:
+                        succeeded = True
+                        break
+                    if isinstance(item, Exception):
+                        raise item
+                    yield item
+
+                if succeeded:
+                    return  # Done — exit generator
+
+            except Exception as e:
+                print(f"[LLMService] stream_chat failed with {model_name}: {e}")
+                continue  # Try next fallback model
+
+        yield "\n\nI'm temporarily unavailable due to API limits. Please try again in a moment."
+
 
     def _parse_json(self, text: str) -> dict:
         """Parse JSON from LLM response with multiple fallback strategies."""
