@@ -9,15 +9,14 @@ export class ApiError extends Error {
     super(message);
     this.name = "ApiError";
   }
-}
-
 class ApiClient {
   private get baseUrl() {
     const url = process.env.NEXT_PUBLIC_API_URL;
     if (!url) {
       throw new Error("NEXT_PUBLIC_API_URL environment variable is required");
     }
-    return url.replace(/\/$/, "") + "/v1";
+    const cleanUrl = url.replace(/\/$/, "");
+    return cleanUrl.endsWith("/v1") ? cleanUrl : cleanUrl + "/v1";
   }
 
   public getBaseUrl(): string {
