@@ -94,6 +94,7 @@ class AnalysisService:
         user_result = await db.execute(select(User).where(User.id == upload.user_id))
         user = user_result.scalar_one_or_none()
         output_language = user.preferred_language if user else "en"
+        llm = get_llm_service()
 
         try:
             # ── Step 1: Mark as processing ──────────────────────────────
