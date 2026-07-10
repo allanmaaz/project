@@ -40,6 +40,7 @@ async def get_jwk_by_kid(kid: str) -> dict | None:
 
 
 async def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     db: AsyncSession = Depends(get_db),
 ) -> User:
@@ -47,14 +48,19 @@ async def get_current_user(
     Extract and validate Supabase JWT.
     Supports HS256 (symmetric) and RS256 (asymmetric JWKS).
     """
-    if credentials is None:
+    token = None
+    if credentials:
+        token = credentials.credentials
+    else:
+        # Fallback to query parameter "token" for browser direct requests (e.g. PDF export / downloads)
+        token = request.query_params.get("token")
+
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"code": "UNAUTHORIZED", "message": "Authentication required."},
             headers={"WWW-Authenticate": "Bearer"},
         )
-
-    token = credentials.credentials
 
     try:
         from jose import jws

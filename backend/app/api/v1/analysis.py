@@ -67,7 +67,7 @@ async def get_analysis(
     )
 
 
-@router.post("/{upload_id}/export")
+@router.get("/{upload_id}/export")
 async def export_analysis_pdf(
     upload_id: str,
     current_user: User = CurrentUser,
