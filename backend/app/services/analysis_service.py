@@ -193,8 +193,19 @@ class AnalysisService:
                         video_svc = get_video_service()
                         video_data = await video_svc.process_video(file_bytes, vision)
                         print(f"[Vision] Video: {video_data.get('sampled_frames')} frames, peaks: {video_data.get('aggregate_summary')}")
-                        classification.document_type = "disaster_rescue"  # videos default to scene analysis
                         
+                        # Set default, then refine based on YOLO detections
+                        classification.document_type = "screenshot_ui"  # default to general visual scene
+                        summary = video_data.get("aggregate_summary", {})
+                        if "boat" in summary or any(k in str(summary).lower() for k in ["flood", "water"]):
+                            classification.document_type = "disaster_rescue"
+                            print(f"[Vision] Video classified as: disaster_rescue (has water/boat indicators)")
+                        else:
+                            print(f"[Vision] Video classified as: screenshot_ui (general roadway/traffic scene)")
+
+                        # Extract best frame bytes (so they are not serialized to DB jsonb)
+                        video_best_frame_bytes = video_data.pop("best_frame_bytes", None)
+
                         # Extract thumbnail grid bytes to upload separately (bytes are not JSON-serializable)
                         grid_bytes = video_data.pop("thumbnail_grid", None)
                         if grid_bytes:
@@ -245,9 +256,15 @@ class AnalysisService:
                     classification.document_type, ScreenshotPipeline
                 )
                 pipeline = pipeline_class(llm)
-                # Pass image bytes for image uploads so pipeline can do visual analysis
-                img_bytes = file_bytes if is_image else None
-                img_mime = upload.file_type if is_image else None
+                # Pass image bytes so pipeline can do visual analysis (use best frame for video)
+                img_bytes = None
+                img_mime = None
+                if is_image:
+                    img_bytes = file_bytes
+                    img_mime = upload.file_type
+                elif is_video and 'video_best_frame_bytes' in locals() and video_best_frame_bytes:
+                    img_bytes = video_best_frame_bytes
+                    img_mime = "image/jpeg"
                 pipeline_result_obj = await pipeline.run(
                     extracted_text, output_language,
                     image_bytes=img_bytes, mime_type=img_mime
