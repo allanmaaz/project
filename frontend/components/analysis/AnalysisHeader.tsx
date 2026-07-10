@@ -33,7 +33,10 @@ export default function AnalysisHeader({
 
   const handleExport = async () => {
     try {
-      const url = api.analysis.getExportUrl(uploadId, null);
+      const { getAccessToken } = await import("../../lib/supabase");
+      const token = await getAccessToken();
+      const url = api.analysis.getExportUrl(uploadId, token);
+      
       // Create a temporary link to download
       const link = document.createElement("a");
       link.href = url;

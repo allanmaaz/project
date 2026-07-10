@@ -87,5 +87,10 @@ async def general_exception_handler(request: Request, exc: Exception):
     )
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return Response(status_code=204)
+
+
 # Attach core API routers
 app.include_router(v1_router, prefix="/v1")
