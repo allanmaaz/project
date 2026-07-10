@@ -33,29 +33,47 @@ export default function VideoFramePlayer({
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   
   const videoRef = useRef<HTMLVideoElement>(null);
-  const playIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Sync state with HTML video element
+  // Sync state with HTML video element at native monitor refresh rate (90fps/120fps)
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
-    const handleTimeUpdate = () => {
+    let rafId: number;
+
+    const syncTime = () => {
       setCurrentTime(video.currentTime);
+      if (isPlaying) {
+        rafId = requestAnimationFrame(syncTime);
+      }
     };
 
     const handleEnded = () => {
       setIsPlaying(false);
     };
 
-    video.addEventListener("timeupdate", handleTimeUpdate);
+    // Fast time update for scrubbing/seeking when paused
+    const handleTimeUpdate = () => {
+      if (!isPlaying) {
+        setCurrentTime(video.currentTime);
+      }
+    };
+
     video.addEventListener("ended", handleEnded);
+    video.addEventListener("timeupdate", handleTimeUpdate);
+
+    if (isPlaying) {
+      rafId = requestAnimationFrame(syncTime);
+    }
 
     return () => {
-      video.removeEventListener("timeupdate", handleTimeUpdate);
       video.removeEventListener("ended", handleEnded);
+      video.removeEventListener("timeupdate", handleTimeUpdate);
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+      }
     };
-  }, []);
+  }, [isPlaying]);
 
   const handlePlayPause = () => {
     const video = videoRef.current;
@@ -63,10 +81,11 @@ export default function VideoFramePlayer({
 
     if (isPlaying) {
       video.pause();
+      setIsPlaying(false);
     } else {
       video.play();
+      setIsPlaying(true);
     }
-    setIsPlaying(!isPlaying);
   };
 
   const handleReset = () => {
@@ -74,10 +93,8 @@ export default function VideoFramePlayer({
     if (!video) return;
     video.currentTime = 0;
     setCurrentTime(0);
-    if (isPlaying) {
-      video.pause();
-      setIsPlaying(false);
-    }
+    video.pause();
+    setIsPlaying(false);
   };
 
   const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
