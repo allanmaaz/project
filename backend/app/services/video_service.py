@@ -19,11 +19,13 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # Intel i5 optimization:
-# For smooth timeline playback: sample 1 frame every 10 frames (~3 frames per second at 30fps)
-# To keep CPU time low, we use YOLOv8n (nano) at imgsz=320.
-# ~0.15 seconds per frame = ~15-20 seconds total for a 30s video.
-FRAME_SAMPLE_INTERVAL = 10    # 3 frames per second at 30fps
-MAX_FRAMES_TO_ANALYZE = 150   # Up to 50 seconds of video timeline
+# Balance accuracy + speed: sample 1 frame per second (every 30 frames at 30fps).
+# We use YOLOv8s (small) at imgsz=640 with a low confidence threshold (0.22)
+# to catch small/distant motorcycles and pedestrians.
+# Because of client-side LERP, the tracking still plays back at liquid-smooth 90fps!
+# ~0.4s per frame * 30 frames = ~12 seconds total processing time.
+FRAME_SAMPLE_INTERVAL = 30    # 1 frame per second at 30fps
+MAX_FRAMES_TO_ANALYZE = 60    # Up to 60 seconds of video timeline
 
 
 class VideoService:
@@ -83,9 +85,9 @@ class VideoService:
                     pil_img.save(buf, format="JPEG", quality=70)
                     frame_bytes = buf.getvalue()
 
-                    # Run YOLOv8n on CPU (fast, ~0.15s per frame at imgsz=320)
+                    # Run YOLOv8s on CPU (accurate, ~0.4s per frame at imgsz=640)
                     det_result = vision_service._detect_sync(
-                        frame_bytes, "image/jpeg", False, 0.28, imgsz=320, model_name="yolov8n"
+                        frame_bytes, "image/jpeg", False, 0.22, imgsz=640, model_name="yolov8s"
                     )
 
                     # Track frame with most objects for visual pipeline context
