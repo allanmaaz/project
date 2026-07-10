@@ -152,14 +152,14 @@ export default function AnalysisPage() {
                   <div className="md:col-span-8">
                     <DetectionViewer
                       imageUrl={rawFileUrl}
-                      detections={visionData.detections || []}
+                      detections={visionData.detections?.detections || []}
                       hoveredIndex={hoveredIndex}
                       setHoveredIndex={setHoveredIndex}
                     />
                   </div>
                   <div className="md:col-span-4 bg-bg-sunken/25 p-4 rounded-3xl border border-border">
                     <DetectionPanel
-                      detections={visionData.detections || []}
+                      detections={visionData.detections?.detections || []}
                       hoveredIndex={hoveredIndex}
                       setHoveredIndex={setHoveredIndex}
                     />
