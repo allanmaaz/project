@@ -455,31 +455,50 @@ class LLMService:
             except Exception as e:
                 print(f"[Ollama] stream_chat failed: {e}. Falling back to Gemini...")
 
-        # Gemini execution flow
+        # Gemini execution flow — multi-model fallback on quota errors
         gemini_history = []
         for msg in history[:-1]:  # all but last
             role = "user" if msg["role"] == "user" else "model"
             gemini_history.append({"role": role, "parts": [msg["content"]]})
 
         current_message = history[-1]["content"] if history else ""
+        if not gemini_history:
+            current_message = f"{system_instruction}\n\nUser question: {current_message}"
 
-        try:
-            chat_session = self.chat_model.start_chat(history=gemini_history)
-            if not gemini_history:
-                current_message = f"{system_instruction}\n\nUser question: {current_message}"
+        fallback_model_names = [
+            settings.GEMINI_MODEL,
+            "gemini-2.0-flash-lite",
+            "gemini-flash-lite-latest",
+            "gemini-1.5-flash",
+        ]
 
-            response = await asyncio.to_thread(
-                chat_session.send_message,
-                current_message,
-                stream=True,
-            )
+        last_error = None
+        for model_name in fallback_model_names:
+            try:
+                print(f"[LLMService] stream_chat attempting model: {model_name}")
+                chat_model = genai.GenerativeModel(
+                    model_name=model_name,
+                    system_instruction=system_instruction,
+                    generation_config=genai.types.GenerationConfig(
+                        temperature=0.3,
+                        max_output_tokens=2048,
+                    ),
+                )
+                chat_session = chat_model.start_chat(history=gemini_history)
+                response = await asyncio.to_thread(
+                    chat_session.send_message,
+                    current_message,
+                    stream=True,
+                )
+                for chunk in response:
+                    if chunk.text:
+                        yield chunk.text
+                return  # Success — exit generator
+            except Exception as e:
+                last_error = e
+                print(f"[LLMService] stream_chat failed with {model_name}: {e}")
 
-            for chunk in response:
-                if chunk.text:
-                    yield chunk.text
-
-        except Exception as e:
-            yield f"\n\nSorry, I encountered an error. Please try again."
+        yield f"\n\nI'm temporarily unavailable due to API limits. Please try again in a moment."
 
     def _parse_json(self, text: str) -> dict:
         """Parse JSON from LLM response with multiple fallback strategies."""

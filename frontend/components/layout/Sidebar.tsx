@@ -62,7 +62,11 @@ export default function Sidebar() {
       window.localStorage.setItem("llm-provider", newProvider);
       window.dispatchEvent(new Event("llm-provider-changed"));
     }
-    toast.success(`Switched AI provider to ${newProvider === "gemini" ? "Gemini (Cloud)" : "Ollama (Local)"}`);
+    if (newProvider === "ollama") {
+      toast.error("Ollama requires a local install running on port 11434. Chat will auto-fallback to Gemini if unavailable.", { duration: 5000 });
+    } else {
+      toast.success("Switched to Gemini (Cloud AI)");
+    }
   };
 
   const handleLogout = async () => {
