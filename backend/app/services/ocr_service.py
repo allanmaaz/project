@@ -24,6 +24,8 @@ class OCRService:
 
     async def extract(self, file_bytes: bytes, mime_type: str) -> OCRResult:
         """Main entry point — routes to correct extractor."""
+        if mime_type.startswith("video/"):
+            return OCRResult(text="[Video File Upload]", confidence=1.0, source="video")
         if mime_type == "application/pdf":
             return await self._extract_pdf(file_bytes)
         return await self._extract_image(file_bytes, mime_type)

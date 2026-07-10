@@ -138,16 +138,15 @@ export default function VideoFramePlayer({
         />
 
         {/* Dynamic Canvas Bounding Box Overlays */}
-        {videoRef.current && (
-          <div className="absolute inset-0 pointer-events-none">
-            <DetectionViewer
-              imageUrl="" // empty image since video handles base render
-              detections={activeDetections}
-              hoveredIndex={hoveredIndex}
-              setHoveredIndex={setHoveredIndex}
-            />
-          </div>
-        )}
+        <div className="absolute inset-0 pointer-events-none">
+          <DetectionViewer
+            imageUrl=""
+            detections={activeDetections}
+            hoveredIndex={hoveredIndex}
+            setHoveredIndex={setHoveredIndex}
+            videoDimensions={{ w: videoWidth, h: videoHeight }}
+          />
+        </div>
       </div>
 
       {/* Frame / Video Player Controls */}

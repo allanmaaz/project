@@ -17,6 +17,7 @@ interface DetectionViewerProps {
   detections: Detection[];
   hoveredIndex: number | null;
   setHoveredIndex: (index: number | null) => void;
+  videoDimensions?: { w: number; h: number };
 }
 
 export default function DetectionViewer({
@@ -24,11 +25,12 @@ export default function DetectionViewer({
   detections,
   hoveredIndex,
   setHoveredIndex,
+  videoDimensions,
 }: DetectionViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState({ x: 1, y: 1 });
-  const [naturalSize, setNaturalSize] = useState({ w: 1, h: 1 });
-  const [isImageLoaded, setIsImageLoaded] = useState(false);
+  const [naturalSize, setNaturalSize] = useState(videoDimensions || { w: 1, h: 1 });
+  const [isImageLoaded, setIsImageLoaded] = useState(!imageUrl);
 
   const handleImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget;
@@ -70,13 +72,15 @@ export default function DetectionViewer({
         className="relative rounded-3xl overflow-hidden border border-border bg-bg-sunken flex items-center justify-center select-none shadow-inner"
         style={{ aspectRatio: naturalSize.w / naturalSize.h }}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={imageUrl}
-          alt="Visual Analysis"
-          className="w-full h-full object-contain pointer-events-none"
-          onLoad={handleImageLoad}
-        />
+        {imageUrl && (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={imageUrl}
+            alt="Visual Analysis"
+            className="w-full h-full object-contain pointer-events-none"
+            onLoad={handleImageLoad}
+          />
+        )}
 
         {isImageLoaded &&
           detections.map((det, index) => {

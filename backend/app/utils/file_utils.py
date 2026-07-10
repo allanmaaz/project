@@ -48,6 +48,26 @@ def detect_mime_type(file_bytes: bytes) -> str:
                     return "image/webp"
                 continue
             return mime
+
+    # Check ftyp container signature (MP4, MOV, HEIC)
+    if len(file_bytes) >= 12 and file_bytes[4:8] == b"ftyp":
+        brand = file_bytes[8:12]
+        if brand in (b"mp41", b"mp42", b"isom", b"dash", b"avc1"):
+            return "video/mp4"
+        if brand in (b"qt  ",):
+            return "video/quicktime"
+        if brand in (b"heic", b"heix", b"hevc", b"hevx", b"mif1", b"msf1"):
+            return "image/heic"
+        return "video/mp4"  # Default fallback for ftyp
+
+    # Check WebM EBML header
+    if file_bytes.startswith(b"\x1a\x45\xdf\xa3"):
+        return "video/webm"
+
+    # Check AVI header
+    if file_bytes.startswith(b"RIFF") and len(file_bytes) >= 12 and file_bytes[8:12] == b"AVI ":
+        return "video/avi"
+
     raise UnsupportedFileTypeError("unknown")
 
 
