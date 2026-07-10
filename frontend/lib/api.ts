@@ -13,7 +13,12 @@ export class ApiError extends Error {
 
 class ApiClient {
   private get baseUrl() {
-    return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/v1";
+    const url = process.env.NEXT_PUBLIC_API_URL;
+    if (!url) {
+      throw new Error("NEXT_PUBLIC_API_URL environment variable is required");
+    }
+    const cleanUrl = url.replace(/\/$/, "");
+    return cleanUrl.endsWith("/v1") ? cleanUrl : cleanUrl + "/v1";
   }
 
   private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -124,11 +129,16 @@ class ApiClient {
       return this.request(`/chat/${id}/suggestions`);
     },
 
-    getStreamUrl: (id: string, message: string, token: string): string => {
-      const url = new URL(`${this.baseUrl}/chat/${id}/stream`);
-      url.searchParams.set("message", message);
-      url.searchParams.set("token", token);
-      return url.toString();
+    // Stream chat via POST with Authorization header (no token in URL)
+    streamChat: async (id: string, message: string, token: string): Promise<Response> => {
+      return fetch(`${this.baseUrl}/chat/${id}/stream`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({ message }),
+      });
     },
   };
 
