@@ -16,6 +16,7 @@ from app.models.analysis import AnalysisResult
 from app.models.user import User
 from app.schemas.chat import ChatHistoryResponse, ChatMessageResponse, SuggestionsResponse, ChatStreamRequest
 from app.services.llm_service import get_llm_service
+from app.services.vision_service import get_vision_service
 from app.utils.exceptions import raise_http, NotFoundError, ForbiddenError, ClarifyBaseError
 
 router = APIRouter()
@@ -130,9 +131,22 @@ async def stream_chat_response(
             yield f"data: {json.dumps({'event': 'start'})}\n\n"
 
             # Call LLM streaming pipeline
+            # Build detection context if upload has YOLO data
+            vision_context = ""
+            try:
+                vision_svc = get_vision_service()
+                if upload.detections and isinstance(upload.detections, dict):
+                    vision_context = vision_svc.build_chat_context(upload.detections)
+                elif upload.video_detections and isinstance(upload.video_detections, dict):
+                    from app.services.video_service import get_video_service
+                    video_svc = get_video_service()
+                    vision_context = video_svc.build_chat_context(upload.video_detections)
+            except Exception:
+                pass  # detection context is enhancement, not required
+
             stream = llm.stream_chat(
                 history=chat_history,
-                doc_context=upload.extracted_text or "",
+                doc_context=(upload.extracted_text or "") + vision_context,
                 doc_type=upload.document_type or "unknown",
                 analysis_summary=analysis.summary,
                 output_language=current_user.preferred_language,

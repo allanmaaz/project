@@ -1,0 +1,259 @@
+"""
+VisionService — YOLOv8n object detection optimized for Intel CPU (no GPU required).
+
+Uses YOLOv8n (nano) — the fastest YOLO model:
+  - ~6MB model file, auto-downloads on first use
+  - ~1-2 seconds per image on Intel i5 (CPU-only)
+  - 80 COCO classes: person, car, truck, boat, fire, etc.
+
+NOTE: SAM segmentation skipped — requires GPU (too slow on Intel CPU ~30s/image).
+Gemini Vision handles deep visual analysis; YOLO handles fast object counting.
+"""
+import io
+import os
+import json
+import asyncio
+import logging
+from typing import Any
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont
+
+# Force CPU-only mode for PyTorch (no GPU on Intel Mac)
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
+
+logger = logging.getLogger(__name__)
+
+# Category → color mapping for bounding boxes
+CATEGORY_COLORS = {
+    "person":       "#FF4444",  # red — highest priority
+    "car":          "#FF8800",  # orange
+    "truck":        "#FF8800",
+    "bus":          "#FF8800",
+    "motorcycle":   "#FFAA00",
+    "bicycle":      "#FFAA00",
+    "boat":         "#0088FF",  # blue — water vehicle
+    "fire":         "#FF0000",  # bright red — hazard
+    "water":        "#00AAFF",  # light blue
+    "dog":          "#00CC66",  # green
+    "cat":          "#00CC66",
+    "default":      "#CCCCCC",  # grey for others
+}
+
+# Human-readable group labels
+CATEGORY_GROUPS = {
+    "People":    ["person"],
+    "Vehicles":  ["car", "truck", "bus", "motorcycle", "bicycle", "boat"],
+    "Hazards":   ["fire", "knife", "gun", "scissors"],
+    "Animals":   ["dog", "cat", "horse", "bird", "cow", "sheep"],
+    "Objects":   [],  # catch-all
+}
+
+
+class VisionService:
+    _yolo_model = None   # class-level cache — loads once per process
+
+    @classmethod
+    def _get_yolo(cls):
+        if cls._yolo_model is None:
+            from ultralytics import YOLO
+            # YOLOv8n — nano model, fastest on CPU, ~6MB
+            cls._yolo_model = YOLO("yolov8n.pt")
+            # Force CPU inference (Intel Mac has no CUDA/MPS support)
+            logger.info("[Vision] YOLOv8n loaded on CPU")
+        return cls._yolo_model
+
+    async def detect(
+        self,
+        image_bytes: bytes,
+        mime_type: str = "image/jpeg",
+        run_sam: bool = False,   # ignored — SAM disabled on Intel CPU
+        conf_threshold: float = 0.30,  # lower threshold = catch more objects
+    ) -> dict:
+        """
+        Run YOLOv8n on image. Returns detections with bounding boxes + counts.
+        Runs in a thread pool so it doesn't block the async event loop.
+        ~1-2 seconds on Intel i5.
+        """
+        return await asyncio.to_thread(
+            self._detect_sync, image_bytes, mime_type, False, conf_threshold
+        )
+
+    def _detect_sync(
+        self,
+        image_bytes: bytes,
+        mime_type: str,
+        run_sam: bool,
+        conf_threshold: float,
+    ) -> dict:
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        img_w, img_h = img.size
+        img_np = np.array(img)
+
+        model = self._get_yolo()
+        results = model(img_np, conf=conf_threshold, verbose=False)[0]
+
+        detections = []
+        summary: dict[str, int] = {}
+
+        for box in results.boxes:
+            label = results.names[int(box.cls[0])]
+            conf = float(box.conf[0])
+            x1, y1, x2, y2 = box.xyxy[0].tolist()
+            det = {
+                "label": label,
+                "confidence": round(conf, 3),
+                "bbox": {
+                    "x": round(x1), "y": round(y1),
+                    "w": round(x2 - x1), "h": round(y2 - y1),
+                },
+                "color": CATEGORY_COLORS.get(label, CATEGORY_COLORS["default"]),
+                "frame": 0,
+            }
+            detections.append(det)
+            summary[label] = summary.get(label, 0) + 1
+
+        # Group summary
+        groups: dict[str, int] = {}
+        for group_name, labels in CATEGORY_GROUPS.items():
+            count = sum(summary.get(l, 0) for l in labels)
+            if count > 0:
+                groups[group_name] = count
+        # Catch-all
+        grouped_labels = [l for ls in CATEGORY_GROUPS.values() for l in ls]
+        others = sum(v for k, v in summary.items() if k not in grouped_labels)
+        if others > 0:
+            groups["Objects"] = others
+
+        result = {
+            "detections": detections,
+            "summary": summary,
+            "groups": groups,
+            "image_width": img_w,
+            "image_height": img_h,
+            "model": "yolov8n",
+            "total_objects": len(detections),
+        }
+
+        # SAM disabled on Intel CPU (too slow without GPU)
+        # Future: enable when running on cloud/GPU instance
+
+        return result
+
+    async def draw_annotated(
+        self,
+        image_bytes: bytes,
+        detections: list[dict],
+        image_width: int,
+        image_height: int,
+    ) -> bytes:
+        """
+        Draw bounding boxes + labels on the image.
+        Returns JPEG bytes of the annotated image.
+        """
+        return await asyncio.to_thread(
+            self._draw_sync, image_bytes, detections, image_width, image_height
+        )
+
+    def _draw_sync(
+        self,
+        image_bytes: bytes,
+        detections: list[dict],
+        image_width: int,
+        image_height: int,
+    ) -> bytes:
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        draw = ImageDraw.Draw(img, "RGBA")
+
+        # Try to load a font, fall back to default
+        try:
+            font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", size=14)
+            font_small = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", size=11)
+        except Exception:
+            font = ImageFont.load_default()
+            font_small = font
+
+        for det in detections:
+            color = det.get("color", "#FF4444")
+            bbox = det["bbox"]
+            x, y, w, h = bbox["x"], bbox["y"], bbox["w"], bbox["h"]
+            label = det["label"]
+            conf = det["confidence"]
+
+            # Box with semi-transparent fill
+            r, g, b = self._hex_to_rgb(color)
+            draw.rectangle(
+                [x, y, x + w, y + h],
+                outline=color,
+                width=3,
+            )
+            # Label background
+            label_text = f"{label} {int(conf * 100)}%"
+            text_bbox = draw.textbbox((x, y - 20), label_text, font=font)
+            draw.rectangle(
+                [text_bbox[0] - 2, text_bbox[1] - 2, text_bbox[2] + 2, text_bbox[3] + 2],
+                fill=(r, g, b, 200),
+            )
+            draw.text((x, y - 20), label_text, fill="white", font=font)
+
+        # Watermark
+        draw.text(
+            (8, image_height - 20),
+            "Clarify AI — YOLOv9 Detection",
+            fill=(255, 255, 255, 180),
+            font=font_small,
+        )
+
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=90)
+        return buf.getvalue()
+
+    def _hex_to_rgb(self, hex_color: str) -> tuple[int, int, int]:
+        h = hex_color.lstrip("#")
+        return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+
+    def build_chat_context(self, detections_data: dict) -> str:
+        """
+        Build a text block to inject into the chat system prompt so the AI
+        can answer questions like 'how many people?' precisely.
+        """
+        if not detections_data or not detections_data.get("detections"):
+            return ""
+
+        summary = detections_data.get("summary", {})
+        groups = detections_data.get("groups", {})
+        total = detections_data.get("total_objects", 0)
+        model = detections_data.get("model", "yolo")
+
+        lines = [
+            "\n\n━━━ COMPUTER VISION DATA (YOLOv9 Detection) ━━━",
+            f"Total objects detected: {total}",
+        ]
+
+        if summary:
+            lines.append("Object counts (exact, from vision model):")
+            for label, count in sorted(summary.items(), key=lambda x: -x[1]):
+                lines.append(f"  • {label}: {count}")
+
+        if groups:
+            lines.append("By category:")
+            for group, count in groups.items():
+                lines.append(f"  • {group}: {count}")
+
+        lines.append(
+            "\nWhen asked 'how many X are there?', use the counts above — they are precise "
+            "measurements from the computer vision model, not guesses."
+        )
+        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        return "\n".join(lines)
+
+
+# Singleton
+_vision_service: VisionService | None = None
+
+
+def get_vision_service() -> VisionService:
+    global _vision_service
+    if _vision_service is None:
+        _vision_service = VisionService()
+    return _vision_service

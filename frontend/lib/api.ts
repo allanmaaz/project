@@ -104,6 +104,10 @@ class ApiClient {
       return this.request(`/analysis/${id}`);
     },
 
+    getDetections: async (id: string): Promise<any> => {
+      return this.request(`/uploads/${id}/detections`);
+    },
+
     share: async (id: string, days: number = 7): Promise<{ share_token: string; expires_at: string; share_url: string }> => {
       return this.request(`/analysis/${id}/share?days_to_expire=${days}`, {
         method: "POST",

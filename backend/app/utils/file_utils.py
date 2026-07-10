@@ -17,6 +17,9 @@ MAGIC_SIGNATURES: list[tuple[bytes, str]] = [
 SUPPORTED_MIME_TYPES = {
     "image/jpeg", "image/png", "image/webp",
     "image/heic", "image/heif", "application/pdf",
+    # Video uploads
+    "video/mp4", "video/webm", "video/quicktime",
+    "video/avi", "video/x-msvideo",
 }
 
 MIME_TO_EXTENSION = {
@@ -26,6 +29,11 @@ MIME_TO_EXTENSION = {
     "image/heic": "heic",
     "image/heif": "heic",
     "application/pdf": "pdf",
+    "video/mp4": "mp4",
+    "video/webm": "webm",
+    "video/quicktime": "mov",
+    "video/avi": "avi",
+    "video/x-msvideo": "avi",
 }
 
 

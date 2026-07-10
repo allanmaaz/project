@@ -42,3 +42,6 @@ lerna-debug.log*
 
 # Supabase Local
 .supabase/
+
+# Large Model weights
+*.pt

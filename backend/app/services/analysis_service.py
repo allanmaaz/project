@@ -33,6 +33,14 @@ from app.pipelines.disaster_pipeline import DisasterPipeline
 from app.utils.file_utils import generate_thumbnail, detect_mime_type
 from app.utils.cache import analysis_cache, hash_file, CACHE_VERSION
 from app.utils.exceptions import AnalysisFailedError
+from app.services.vision_service import get_vision_service
+from app.services.video_service import get_video_service
+
+# Supported video MIME types
+VIDEO_MIME_TYPES = {
+    "video/mp4", "video/webm", "video/quicktime",
+    "video/avi", "video/x-msvideo", "video/mov",
+}
 
 
 # Pipeline routing map
@@ -123,18 +131,92 @@ class AnalysisService:
                     filename=upload.original_filename or "",
                 )
 
-                # If OCR text is empty/short AND file is an image → use Gemini vision
-                # to classify the image type (flood photo, accident, etc.)
+                # ── Step 5b: YOLO Vision Detection (images + videos) ─────
                 is_image = upload.file_type.startswith("image/")
+                is_video = upload.file_type in VIDEO_MIME_TYPES
+                detections_data = None
+                video_data = None
+
+                if is_image:
+                    try:
+                        print(f"[Vision] Running YOLOv8n on image...")
+                        vision = get_vision_service()
+                        detections_data = await vision.detect(file_bytes, upload.file_type)
+                        print(f"[Vision] Detected {detections_data['total_objects']} objects: {detections_data['summary']}")
+
+                        # Generate + upload annotated image (with bounding boxes drawn)
+                        if detections_data["detections"]:
+                            ann_bytes = await vision.draw_annotated(
+                                file_bytes,
+                                detections_data["detections"],
+                                detections_data["image_width"],
+                                detections_data["image_height"],
+                            )
+                            ann_path = f"annotated/{upload.user_id}/{upload_id}.jpg"
+                            try:
+                                self.supabase.storage.from_("thumbnails").upload(
+                                    ann_path, ann_bytes,
+                                    {"content-type": "image/jpeg", "upsert": "true"},
+                                )
+                                ann_url = self.supabase.storage.from_("thumbnails").get_public_url(ann_path)
+                                await db.execute(
+                                    update(Upload).where(Upload.id == upload_id)
+                                    .values(annotated_image_url=ann_url)
+                                )
+                                await db.commit()
+                            except Exception as ann_err:
+                                print(f"[Vision] Annotated upload failed: {ann_err}")
+
+                        # Use YOLO detections to boost classification accuracy
+                        summary = detections_data.get("summary", {})
+                        if classification.document_type in ("unknown", "screenshot_ui"):
+                            person_count = summary.get("person", 0)
+                            water_keywords = any(k in str(summary).lower() for k in ["boat", "water"])
+                            vehicle_count = sum(summary.get(v, 0) for v in ["car", "truck", "bus", "motorcycle"])
+                            if person_count >= 2 or water_keywords:
+                                classification.document_type = "disaster_rescue"
+                                print(f"[Vision] YOLO override: disaster_rescue (persons={person_count})")
+
+                    except Exception as ve:
+                        print(f"[Vision] Detection failed (non-fatal): {ve}")
+
+                elif is_video:
+                    try:
+                        print(f"[Vision] Running video frame analysis...")
+                        vision = get_vision_service()
+                        video_svc = get_video_service()
+                        video_data = await video_svc.process_video(file_bytes, vision)
+                        print(f"[Vision] Video: {video_data.get('sampled_frames')} frames, peaks: {video_data.get('aggregate_summary')}")
+                        classification.document_type = "disaster_rescue"  # videos default to scene analysis
+                        await db.execute(
+                            update(Upload).where(Upload.id == upload_id)
+                            .values(video_frame_count=video_data.get("frame_count", 0))
+                        )
+                        await db.commit()
+                    except Exception as ve:
+                        print(f"[Vision] Video analysis failed (non-fatal): {ve}")
+
+                # If still unknown image → use Gemini visual classification
                 if classification.document_type == "unknown" and is_image and len(extracted_text.strip()) < 30:
                     try:
-                        print(f"[Analysis] OCR empty for image — running visual classification")
+                        print(f"[Analysis] Running Gemini visual classification fallback")
                         visual_type = await llm.classify_visually(file_bytes, upload.file_type)
                         if visual_type != "unknown":
-                            print(f"[Analysis] Visual classifier detected: {visual_type}")
+                            print(f"[Analysis] Gemini visual: {visual_type}")
                             classification.document_type = visual_type
                     except Exception as ve:
-                        print(f"[Analysis] Visual classification failed: {ve}")
+                        print(f"[Analysis] Gemini visual classification failed: {ve}")
+
+                # Store detections in DB (for chat context + frontend viewer)
+                det_to_store = detections_data if detections_data else []
+                vd_to_store = video_data if video_data else None
+                await db.execute(
+                    update(Upload).where(Upload.id == upload_id).values(
+                        detections=det_to_store,
+                        video_detections=vd_to_store,
+                    )
+                )
+                await db.commit()
 
                 # ── Step 6: Run domain pipeline ──────────────────────────
                 pipeline_class = PIPELINE_MAP.get(

@@ -205,3 +205,36 @@ async def delete_upload(
     await db.commit()
 
     return {"status": "success", "message": "Document deleted successfully."}
+
+
+@router.get("/{upload_id}/detections")
+async def get_detections(
+    upload_id: str,
+    current_user: User = CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Return YOLOv8n detection data for an upload.
+    - detections: bounding boxes with label, confidence, bbox coords, color
+    - summary: {'person': 3, 'car': 2, ...}
+    - annotated_image_url: image with boxes drawn
+    - video_detections: per-frame analysis for video uploads
+    """
+    result = await db.execute(select(Upload).where(Upload.id == uuid.UUID(upload_id)))
+    upload = result.scalar_one_or_none()
+
+    if not upload:
+        raise_http(NotFoundError("Upload"), 404)
+    if upload.user_id != current_user.id:
+        raise_http(ForbiddenError(), 403)
+
+    return {
+        "upload_id": str(upload.id),
+        "detections": upload.detections or [],
+        "video_detections": upload.video_detections,
+        "annotated_image_url": upload.annotated_image_url,
+        "video_frame_count": upload.video_frame_count,
+        "document_type": upload.document_type,
+        "has_detections": bool(upload.detections),
+        "has_video": bool(upload.video_detections),
+    }

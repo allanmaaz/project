@@ -31,8 +31,13 @@ export default function UploadZone({ onFileSelect, disabled }: UploadZoneProps) 
       "image/png": [".png"],
       "image/webp": [".webp"],
       "application/pdf": [".pdf"],
+      "video/mp4": [".mp4"],
+      "video/webm": [".webm"],
+      "video/quicktime": [".mov", ".qt"],
+      "video/avi": [".avi"],
+      "video/x-msvideo": [".avi"],
     },
-    maxSize: 20 * 1024 * 1024, // 20MB
+    maxSize: 50 * 1024 * 1024, // 50MB
     multiple: false,
   });
 
@@ -59,7 +64,7 @@ export default function UploadZone({ onFileSelect, disabled }: UploadZoneProps) 
 
           <div className="space-y-1.5">
             <p className="text-base font-bold text-foreground">
-              {isDragActive ? "Drop your file here..." : "Drag & drop your document here"}
+              {isDragActive ? "Drop your file here..." : "Drag & drop your file here"}
             </p>
             <p className="text-xs text-muted-foreground font-semibold">
               or <span className="text-brand-500 hover:underline">browse files</span> on your computer
@@ -68,10 +73,10 @@ export default function UploadZone({ onFileSelect, disabled }: UploadZoneProps) 
 
           <div className="flex flex-wrap items-center justify-center gap-4 text-[10px] text-muted-foreground font-semibold">
             <span className="flex items-center gap-1">
-              <FileText className="w-3.5 h-3.5" /> PDF, PNG, JPG, WEBP
+              <FileText className="w-3.5 h-3.5" /> PDF, PNG, JPG, WEBP, MP4, WEBM
             </span>
             <span>&bull;</span>
-            <span>Max size 20MB</span>
+            <span>Max size 50MB</span>
           </div>
         </div>
       </div>

@@ -27,6 +27,10 @@ class Upload(Base):
     thumbnail_url: Mapped[str | None] = mapped_column(Text)
     error_message: Mapped[str | None] = mapped_column(Text)
     suggested_questions: Mapped[list | None] = mapped_column(JSONB, default=list)
+    detections: Mapped[list | None] = mapped_column(JSONB, default=list)                  # YOLOv9 bounding boxes
+    video_detections: Mapped[dict | None] = mapped_column(JSONB, default=None)             # per-frame video analysis
+    annotated_image_url: Mapped[str | None] = mapped_column(Text)                         # image with boxes drawn
+    video_frame_count: Mapped[int] = mapped_column(Integer, default=0)                    # total frames in video
     processing_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     processing_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
