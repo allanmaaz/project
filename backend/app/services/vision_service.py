@@ -1,10 +1,12 @@
 """
-VisionService — YOLOv8n object detection optimized for Intel CPU (no GPU required).
+VisionService — YOLOv8s object detection optimized for Intel CPU (no GPU required).
 
-Uses YOLOv8n (nano) — the fastest YOLO model:
-  - ~6MB model file, auto-downloads on first use
-  - ~1-2 seconds per image on Intel i5 (CPU-only)
+Uses YOLOv8s (small) — significant accuracy upgrade over nano:
+  - ~22MB model file, auto-downloads on first use
+  - ~5-8 seconds per image on Intel i5 (CPU-only)
   - 80 COCO classes: person, car, truck, boat, fire, etc.
+  - mAP50-95: 48.0 vs 37.3 for YOLOv8n — detects crowds, small objects
+  - imgsz=640 (standard YOLO resolution — detects small/distant people)
 
 NOTE: SAM segmentation skipped — requires GPU (too slow on Intel CPU ~30s/image).
 Gemini Vision handles deep visual analysis; YOLO handles fast object counting.
@@ -104,10 +106,10 @@ class VisionService:
     def _get_yolo(cls):
         if cls._yolo_model is None:
             from ultralytics import YOLO
-            # YOLOv8n — nano model, fastest on CPU, ~6MB
-            cls._yolo_model = YOLO("yolov8n.pt")
-            # Force CPU inference (Intel Mac has no CUDA/MPS support)
-            logger.info("[Vision] YOLOv8n loaded on CPU")
+            # YOLOv8s — small model: 2x better mAP than nano, still CPU-viable
+            # Auto-downloads ~22MB on first use
+            cls._yolo_model = YOLO("yolov8s.pt")
+            logger.info("[Vision] YOLOv8s loaded on CPU")
         return cls._yolo_model
 
     async def detect(
@@ -115,12 +117,12 @@ class VisionService:
         image_bytes: bytes,
         mime_type: str = "image/jpeg",
         run_sam: bool = False,   # ignored — SAM disabled on Intel CPU
-        conf_threshold: float = 0.30,  # lower threshold = catch more objects
+        conf_threshold: float = 0.22,  # lower = catch more distant/small people
     ) -> dict:
         """
-        Run YOLOv8n on image. Returns detections with bounding boxes + counts.
+        Run YOLOv8s on image. Returns detections with bounding boxes + counts.
         Runs in a thread pool so it doesn't block the async event loop.
-        ~1-2 seconds on Intel i5.
+        ~5-8 seconds on Intel i5 (accuracy > speed for disaster analysis).
         """
         return await asyncio.to_thread(
             self._detect_sync, image_bytes, mime_type, False, conf_threshold
@@ -132,14 +134,21 @@ class VisionService:
         mime_type: str,
         run_sam: bool,
         conf_threshold: float,
-        imgsz: int = 320,  # 320 is 4x faster on CPU than 640
+        imgsz: int = 640,   # Standard YOLO resolution — detects small/distant objects
     ) -> dict:
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         img_w, img_h = img.size
         img_np = np.array(img)
 
         model = self._get_yolo()
-        results = model(img_np, conf=conf_threshold, imgsz=imgsz, verbose=False)[0]
+        results = model(
+            img_np,
+            conf=conf_threshold,
+            imgsz=imgsz,
+            iou=0.45,        # NMS IOU threshold — lower = fewer overlapping boxes
+            max_det=100,     # max 100 objects per image
+            verbose=False,
+        )[0]
 
         detections = []
         summary: dict[str, int] = {}
@@ -189,7 +198,7 @@ class VisionService:
             "groups": groups,
             "image_width": img_w,
             "image_height": img_h,
-            "model": "yolov8n",
+            "model": "yolov8s",
             "total_objects": len(detections),
         }
 
