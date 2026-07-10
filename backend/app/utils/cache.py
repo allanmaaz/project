@@ -43,6 +43,9 @@ class InMemoryCache:
         return hashlib.md5(combined.encode()).hexdigest()
 
 
+# Cache version — bump this to invalidate all cached results after prompt changes
+CACHE_VERSION = "v3"
+
 # Module-level singleton instances
 analysis_cache = InMemoryCache(default_ttl=604800)   # 7 days for analysis
 suggestions_cache = InMemoryCache(default_ttl=604800)  # 7 days for suggestions

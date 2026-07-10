@@ -31,7 +31,7 @@ from app.pipelines.receipt_pipeline import ReceiptPipeline
 from app.pipelines.screenshot_pipeline import ScreenshotPipeline
 from app.pipelines.disaster_pipeline import DisasterPipeline
 from app.utils.file_utils import generate_thumbnail, detect_mime_type
-from app.utils.cache import analysis_cache, hash_file
+from app.utils.cache import analysis_cache, hash_file, CACHE_VERSION
 from app.utils.exceptions import AnalysisFailedError
 
 
@@ -94,9 +94,10 @@ class AnalysisService:
             # ── Step 2: Download file from Supabase Storage ─────────────
             file_bytes = await self._download_file(upload.storage_path)
 
-            # ── Step 3: Check cache (same file analyzed before?) ─────────
+            # ── Step 3: Check cache (same file analyzed before?) ─────
             file_hash = hash_file(file_bytes)
-            cache_key = analysis_cache.make_key(file_hash, output_language)
+            # CACHE_VERSION is bumped when prompts change so stale results are bypassed
+            cache_key = analysis_cache.make_key(file_hash, output_language, CACHE_VERSION)
             cached = analysis_cache.get(cache_key)
 
             if cached:

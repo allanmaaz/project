@@ -4,9 +4,20 @@ from app.schemas.analysis import PipelineResult
 
 
 class ScreenshotPipeline(BasePipeline):
-    async def run(self, text: str, language: str, image_bytes: bytes = None, mime_type: str = None) -> PipelineResult:
+    async def run(
+        self,
+        text: str,
+        language: str,
+        image_bytes: bytes = None,
+        mime_type: str = None,
+    ) -> PipelineResult:
         prompt = get_screenshot_prompt(language)
-        raw, token_usage = await self.llm.analyze(prompt, text, language)
+        # Forward image bytes so Gemini can see the actual image, not just empty OCR text
+        raw, token_usage = await self.llm.analyze(
+            prompt, text, language,
+            image_bytes=image_bytes,
+            mime_type=mime_type,
+        )
         raw = self._enrich_result(raw, text)
         return PipelineResult(
             summary=raw.get("summary", ""),
@@ -15,6 +26,6 @@ class ScreenshotPipeline(BasePipeline):
             warnings=raw.get("warnings", []),
             recommendations=raw.get("recommendations", []),
             timeline=[],
-            model_used="gemini-1.5-flash",
+            model_used="gemini-2.5-flash",
             token_usage=token_usage,
         )
