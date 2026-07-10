@@ -25,6 +25,7 @@ export default function Sidebar() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
   const [isCommandOpen, setIsCommandOpen] = useState(false);
+  const [provider, setProvider] = useState("gemini");
   const pathname = usePathname();
   const router = useRouter();
   const supabase = createBrowserSupabaseClient();
@@ -39,6 +40,11 @@ export default function Sidebar() {
     };
     fetchUser();
     
+    // Load active provider from local storage
+    if (typeof window !== "undefined") {
+      setProvider(window.localStorage.getItem("llm-provider") || "gemini");
+    }
+    
     // Listen for custom Cmd+K key combo for command palette
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
@@ -49,6 +55,15 @@ export default function Sidebar() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
+
+  const toggleProvider = (newProvider: string) => {
+    setProvider(newProvider);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("llm-provider", newProvider);
+      window.dispatchEvent(new Event("llm-provider-changed"));
+    }
+    toast.success(`Switched AI provider to ${newProvider === "gemini" ? "Gemini (Cloud)" : "Ollama (Local)"}`);
+  };
 
   const handleLogout = async () => {
     try {
@@ -148,6 +163,40 @@ export default function Sidebar() {
 
       {/* Footer User Info */}
       <div className="p-4 border-t border-border flex flex-col gap-2 bg-bg-sunken/40">
+        {/* AI Engine Selector */}
+        {!isCollapsed ? (
+          <div className="bg-bg-base border border-border rounded-lg p-1 flex gap-1 items-center mb-1">
+            <button
+              onClick={() => toggleProvider("gemini")}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-1 px-2 rounded-md text-[10px] font-bold transition-all ${
+                provider === "gemini"
+                  ? "bg-brand-500 text-white shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <span>☁️</span> Gemini
+            </button>
+            <button
+              onClick={() => toggleProvider("ollama")}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-1 px-2 rounded-md text-[10px] font-bold transition-all ${
+                provider === "ollama"
+                  ? "bg-brand-500 text-white shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <span>💻</span> Ollama
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => toggleProvider(provider === "gemini" ? "ollama" : "gemini")}
+            className="w-full flex items-center justify-center py-1.5 rounded-lg hover:bg-bg-base text-xs transition-all border border-border mb-1"
+            title={`Active AI: ${provider === "gemini" ? "Gemini (Cloud)" : "Ollama (Local)"}. Click to toggle.`}
+          >
+            <span>{provider === "gemini" ? "☁️" : "💻"}</span>
+          </button>
+        )}
+
         <div className={`flex items-center gap-3 overflow-hidden ${isCollapsed ? "justify-center" : ""}`}>
           <div className="w-8 h-8 rounded-full bg-brand-500/10 border border-brand-500/20 text-brand-500 flex items-center justify-center font-bold text-sm flex-shrink-0 uppercase">
             {userName ? userName[0] : <User className="w-4 h-4" />}

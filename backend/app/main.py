@@ -89,6 +89,21 @@ class LimitUploadSize(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+# Select LLM provider middleware
+@app.middleware("http")
+async def select_llm_provider(request: Request, call_next):
+    from app.services.llm_service import active_llm_provider
+    provider = request.headers.get("x-llm-provider", "gemini").lower()
+    if provider not in ("gemini", "ollama"):
+        provider = "gemini"
+    token = active_llm_provider.set(provider)
+    try:
+        response = await call_next(request)
+        return response
+    finally:
+        active_llm_provider.reset(token)
+
+
 # Request logging middleware
 @app.middleware("http")
 async def log_requests(request: Request, call_next):

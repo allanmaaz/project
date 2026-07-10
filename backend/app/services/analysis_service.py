@@ -66,14 +66,19 @@ class AnalysisService:
         self.classifier = ClassificationService()
         self.supabase: Client = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
 
-    async def process_upload(self, upload_id: str) -> None:
+    async def process_upload(self, upload_id: str, provider: str = "gemini") -> None:
         """
         Main background processing function.
         Called by FastAPI BackgroundTasks after file is uploaded to Supabase Storage.
         Creates its own database session to avoid using a closed request-scoped session.
         """
-        async with AsyncSessionLocal() as db:
-            await self._process_upload_with_db(upload_id, db)
+        from app.services.llm_service import active_llm_provider
+        token = active_llm_provider.set(provider)
+        try:
+            async with AsyncSessionLocal() as db:
+                await self._process_upload_with_db(upload_id, db)
+        finally:
+            active_llm_provider.reset(token)
 
     async def _process_upload_with_db(self, upload_id: str, db: AsyncSession) -> None:
         """

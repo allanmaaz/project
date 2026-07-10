@@ -81,8 +81,10 @@ async def create_upload(
     await db.commit()
 
     # Dispatch to asynchronous processing pipeline
+    from app.services.llm_service import active_llm_provider
+    provider = active_llm_provider.get()
     analysis_srv = get_analysis_service()
-    background_tasks.add_task(analysis_srv.process_upload, upload_id)
+    background_tasks.add_task(analysis_srv.process_upload, upload_id, provider)
 
     return UploadCreateResponse(upload_id=upload_id)
 

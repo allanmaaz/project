@@ -36,6 +36,14 @@ class ApiClient {
       headers.set("Content-Type", "application/json");
     }
 
+    // Set dynamic LLM provider from local storage
+    if (typeof window !== "undefined") {
+      const savedProvider = window.localStorage.getItem("llm-provider");
+      if (savedProvider) {
+        headers.set("X-LLM-Provider", savedProvider);
+      }
+    }
+
     const response = await fetch(`${this.baseUrl}${path}`, {
       ...options,
       headers,
@@ -139,12 +147,19 @@ class ApiClient {
 
     // Stream chat via POST with Authorization header (no token in URL)
     streamChat: async (id: string, message: string, token: string): Promise<Response> => {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`,
+      };
+      if (typeof window !== "undefined") {
+        const savedProvider = window.localStorage.getItem("llm-provider");
+        if (savedProvider) {
+          headers["X-LLM-Provider"] = savedProvider;
+        }
+      }
       return fetch(`${this.baseUrl}/chat/${id}/stream`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`,
-        },
+        headers,
         body: JSON.stringify({ message }),
       });
     },
