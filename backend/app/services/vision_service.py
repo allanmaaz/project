@@ -49,6 +49,54 @@ CATEGORY_GROUPS = {
 }
 
 
+def _flood_relabel(detections: list[dict]) -> list[dict]:
+    """
+    YOLOv8n misclassifies cars in flood water as 'boat' because both look like
+    floating objects from a distance. This function corrects it using geometry:
+    - Real boats are long and narrow  (bbox width >> height, ratio > 4.0)
+    - Cars are box-shaped             (bbox width / height between 1.0 and 3.5)
+    - Actual rescue boats in images   usually have very high aspect ratios
+
+    Strategy: if the scene has >=2 'boat' detections with car-proportioned
+    bounding boxes AND no 'car' is detected alongside them, relabel them.
+    The original confidence stays intact.
+    """
+    boat_dets = [d for d in detections if d["label"] == "boat"]
+    car_dets   = [d for d in detections if d["label"] in ("car", "truck", "bus")]
+
+    if not boat_dets:
+        return detections
+
+    # Count how many 'boat' detections look like cars by aspect ratio
+    car_shaped_boats = [
+        d for d in boat_dets
+        if 0.8 <= (d["bbox"]["w"] / max(d["bbox"]["h"], 1)) <= 3.8
+    ]
+
+    # If most 'boat' detections are car-shaped AND there are few/no confirmed cars,
+    # it's very likely a flood scene mislabelling everything.
+    majority_are_car_shaped = len(car_shaped_boats) >= max(1, len(boat_dets) * 0.5)
+    no_real_cars_detected   = len(car_dets) == 0
+
+    if not (majority_are_car_shaped and no_real_cars_detected):
+        return detections  # Scene looks legit — keep original labels
+
+    fixed = []
+    for det in detections:
+        if det["label"] == "boat":
+            ratio = det["bbox"]["w"] / max(det["bbox"]["h"], 1)
+            if 0.8 <= ratio <= 3.8:
+                # Car-shaped → relabel as submerged vehicle
+                det = dict(det)  # copy to avoid mutating original
+                det["label"] = "car"
+                det["color"] = CATEGORY_COLORS.get("car", CATEGORY_COLORS["default"])
+                det["relabeled_from"] = "boat"  # keep provenance
+                print(f"[Vision] Relabelled boat→car (flood correction, ratio={ratio:.2f})")
+        fixed.append(det)
+    return fixed
+
+
+
 class VisionService:
     _yolo_model = None   # class-level cache — loads once per process
 
@@ -112,6 +160,16 @@ class VisionService:
             }
             detections.append(det)
             summary[label] = summary.get(label, 0) + 1
+
+        # ── Flood/disaster context correction ──────────────────────────────
+        # YOLOv8n often labels submerged cars as 'boat' in flood images.
+        # Apply geometric heuristic to correct mislabelled objects.
+        detections = _flood_relabel(detections)
+
+        # Rebuild summary after relabelling
+        summary = {}
+        for det in detections:
+            summary[det["label"]] = summary.get(det["label"], 0) + 1
 
         # Group summary
         groups: dict[str, int] = {}
