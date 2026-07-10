@@ -24,13 +24,14 @@ export default function UploadProgress({
   onRetry,
 }: UploadProgressProps) {
   const getStepLabel = (s: UploadStep) => {
+    const isVideo = fileName && /\.(mp4|webm|mov|avi|qt)$/i.test(fileName);
     switch (s) {
       case "ocr":
-        return "Extracting document text (OCR)...";
+        return isVideo ? "Extracting video frames..." : "Extracting document text (OCR)...";
       case "classification":
-        return "Classifying document type...";
+        return isVideo ? "Running YOLOv9 object detection..." : "Classifying document type...";
       case "analysis":
-        return "Analyzing content using Gemini AI...";
+        return isVideo ? "Generating AI visual report..." : "Analyzing content using Gemini AI...";
       case "done":
         return "Analysis completed!";
       case "failed":
