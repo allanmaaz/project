@@ -103,6 +103,9 @@ class LLMService:
                 return result, token_usage
 
             except Exception as e:
+                import traceback
+                print(f"[LLMService] Error during content generation (attempt {attempt+1}/3): {e}")
+                traceback.print_exc()
                 if attempt == 2:
                     raise LLMUnavailableError()
                 # Respect Gemini rate limit — wait before retry
