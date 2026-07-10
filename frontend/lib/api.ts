@@ -17,8 +17,11 @@ class ApiClient {
     if (!url) {
       throw new Error("NEXT_PUBLIC_API_URL environment variable is required");
     }
-    const cleanUrl = url.replace(/\/$/, "");
-    return cleanUrl.endsWith("/v1") ? cleanUrl : cleanUrl + "/v1";
+    return url.replace(/\/$/, "") + "/v1";
+  }
+
+  public getBaseUrl(): string {
+    return this.baseUrl;
   }
 
   private async request<T>(path: string, options: RequestInit = {}): Promise<T> {
