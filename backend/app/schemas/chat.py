@@ -10,8 +10,10 @@ class ChatStreamRequest(BaseModel):
     message: str
 
 
+import uuid
+
 class ChatMessageResponse(BaseModel):
-    id: str
+    id: uuid.UUID
     role: str
     content: str
     created_at: datetime

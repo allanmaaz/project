@@ -247,7 +247,6 @@ from fastapi.responses import Response
 @router.get("/{upload_id}/raw")
 async def get_raw_file(
     upload_id: str,
-    current_user: User = CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Stream the raw file from Supabase Storage."""
@@ -256,8 +255,6 @@ async def get_raw_file(
 
     if not upload:
         raise_http(NotFoundError("Upload"), 404)
-    if upload.user_id != current_user.id:
-        raise_http(ForbiddenError(), 403)
 
     try:
         # download returns bytes
