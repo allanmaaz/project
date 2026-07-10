@@ -96,6 +96,14 @@ class AnalysisService:
                 ocr_result = await ocr_service.extract(file_bytes, upload.file_type)
                 extracted_text = ocr_result.text
 
+                # Update database with extracted text to update progress bar step in frontend
+                await db.execute(
+                    update(Upload)
+                    .where(Upload.id == upload_id)
+                    .values(extracted_text=extracted_text, updated_at=datetime.utcnow())
+                )
+                await db.commit()
+
                 # ── Step 5: Classify ─────────────────────────────────────
                 classification = self.classifier.classify(
                     extracted_text,
