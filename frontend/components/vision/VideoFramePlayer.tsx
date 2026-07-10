@@ -136,18 +136,22 @@ export default function VideoFramePlayer({
     const pct = (currentTime - prevFrame.timestamp_sec) / tDiff;
 
     const interpolated: Detection[] = [];
-
-    // Track matched next detections so we can add unmatched ones
     const matchedNextIndices = new Set<number>();
 
-    // Greedy IoU/distance matching of detections between prev and next frames
+    // Helper to check if two labels are compatible (e.g. different vehicle classes)
+    const isCompatibleLabel = (l1: string, l2: string) => {
+      if (l1 === l2) return true;
+      const vehicles = ["car", "truck", "bus", "motorcycle", "bicycle"];
+      return vehicles.includes(l1) && vehicles.includes(l2);
+    };
+
+    // Greedy matching of detections between prev and next frames
     for (const dPrev of prevFrame.detections) {
       let bestMatchIdx = -1;
       let minDistance = 99999;
 
-      // Find closest same-label detection in next frame
       nextFrame.detections.forEach((dNext, idx) => {
-        if (dNext.label !== dPrev.label || matchedNextIndices.has(idx)) return;
+        if (!isCompatibleLabel(dPrev.label, dNext.label) || matchedNextIndices.has(idx)) return;
 
         // Calculate center-point Euclidean distance
         const prevCx = dPrev.bbox.x + dPrev.bbox.w / 2;
@@ -156,8 +160,8 @@ export default function VideoFramePlayer({
         const nextCy = dNext.bbox.y + dNext.bbox.h / 2;
         const dist = Math.sqrt(Math.pow(nextCx - prevCx, 2) + Math.pow(nextCy - prevCy, 2));
 
-        // Bbox centers shouldn't be too far apart (max 150px) to prevent wrong matches
-        if (dist < minDistance && dist < 150) {
+        // Up matching threshold to 250px to handle fast highway movement
+        if (dist < minDistance && dist < 250) {
           minDistance = dist;
           bestMatchIdx = idx;
         }
@@ -167,9 +171,10 @@ export default function VideoFramePlayer({
         matchedNextIndices.add(bestMatchIdx);
         const dNext = nextFrame.detections[bestMatchIdx];
 
-        // LERP coordinates
+        // LERP coordinates + use next label if they match to ensure visual continuity
         interpolated.push({
           ...dPrev,
+          label: dNext.label, // use the latest classification label
           confidence: dPrev.confidence + pct * (dNext.confidence - dPrev.confidence),
           bbox: {
             x: dPrev.bbox.x + pct * (dNext.bbox.x - dPrev.bbox.x),
@@ -179,17 +184,9 @@ export default function VideoFramePlayer({
           },
         });
       } else {
-        // Unmatched object disappearing — fade size to 0 or only show in first half of interval
+        // Unmatched object disappearing — keep full size but fade out/disappear in second half
         if (pct < 0.5) {
-          interpolated.push({
-            ...dPrev,
-            bbox: {
-              ...dPrev.bbox,
-              // Shrink slowly as it fades out
-              w: dPrev.bbox.w * (1 - pct * 2),
-              h: dPrev.bbox.h * (1 - pct * 2),
-            },
-          });
+          interpolated.push(dPrev);
         }
       }
     }
@@ -197,17 +194,9 @@ export default function VideoFramePlayer({
     // Add unmatched appearing next detections
     nextFrame.detections.forEach((dNext, idx) => {
       if (matchedNextIndices.has(idx)) return;
-      // Fade in from second half of interval
+      // Show immediately in second half at full size
       if (pct >= 0.5) {
-        const localPct = (pct - 0.5) * 2; // 0 to 1
-        interpolated.push({
-          ...dNext,
-          bbox: {
-            ...dNext.bbox,
-            w: dNext.bbox.w * localPct,
-            h: dNext.bbox.h * localPct,
-          },
-        });
+        interpolated.push(dNext);
       }
     });
 
