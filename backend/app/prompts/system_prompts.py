@@ -556,10 +556,10 @@ Return this exact JSON structure:
     }}
   ],
   "warnings": [
-    {"severity": "medium", "title": "Warning title", "description": "Warning detail"}
+    {{"severity": "medium", "title": "Warning title", "description": "Warning detail"}}
   ],
   "recommendations": [
-    {"priority": "medium", "action": "Action to take", "reason": "Why this matters"}
+    {{"priority": "medium", "action": "Action to take", "reason": "Why this matters"}}
   ],
   "timeline": []
 }}"""
