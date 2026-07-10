@@ -174,10 +174,24 @@ class LLMService:
             except Exception as e:
                 print(f"DEBUG LLM: Failed to open image for multimodal analysis: {e}")
 
+        fallback_models = ["gemini-2.0-flash-lite", "gemini-flash-lite-latest", "gemini-1.5-flash"]
         for attempt in range(3):
             try:
+                model_to_use = self.model
+                if attempt > 0:
+                    fallback_name = fallback_models[attempt - 1]
+                    print(f"[LLMService] Switching to fallback model on attempt {attempt+1}: {fallback_name}")
+                    model_to_use = genai.GenerativeModel(
+                        model_name=fallback_name,
+                        generation_config=genai.types.GenerationConfig(
+                            temperature=settings.GEMINI_TEMPERATURE,
+                            max_output_tokens=settings.GEMINI_MAX_OUTPUT_TOKENS,
+                            response_mime_type="application/json",
+                        ),
+                    )
+
                 response = await asyncio.to_thread(
-                    self.model.generate_content,
+                    model_to_use.generate_content,
                     prompt_parts,
                 )
                 raw_text = response.text or "{}"
@@ -201,7 +215,7 @@ class LLMService:
                         print("[LLMService] Gemini failed permanently. Falling back to local Ollama...")
                         return await self._analyze_ollama(system_prompt, text_content, image_bytes)
                     raise LLMUnavailableError()
-                wait = 2 ** attempt
+                wait = 3 ** attempt  # Slightly longer backoff for quota reset
                 await asyncio.sleep(wait)
 
         raise LLMUnavailableError()
@@ -253,34 +267,40 @@ class LLMService:
         # Gemini execution flow
         import io
         from PIL import Image
-        try:
-            img = Image.open(io.BytesIO(image_bytes))
-            simple_model = genai.GenerativeModel(
-                model_name=settings.GEMINI_MODEL_FAST,
-                generation_config=genai.types.GenerationConfig(temperature=0.1, max_output_tokens=30),
-            )
-            response = await asyncio.to_thread(
-                simple_model.generate_content,
-                [
-                    "Classify this image into exactly ONE of these categories:\n"
-                    "- disaster_rescue (floods, rising water, natural disasters, stranded people, emergency rescue, collapsed buildings, wildfires)\n"
-                    "- medical (prescription, medical report, X-ray, lab test)\n"
-                    "- legal_contract (contract, agreement, legal document)\n"
-                    "- bill_utility (utility bill, invoice, electricity, water bill)\n"
-                    "- receipt_invoice (store receipt, payment receipt)\n"
-                    "- scam_message (phishing, fraud SMS screenshot)\n"
-                    "- screenshot_ui (mobile app screenshot, website screenshot, error message)\n"
-                    "- government_document (passport, ID card, official government form)\n"
-                    "- unknown (none of the above)\n\n"
-                    "Reply with ONLY the category name, nothing else.",
-                    img,
-                ],
-            )
-            raw = (response.text or "unknown").strip().lower().split()[0]
-            return raw if raw in VALID_TYPES else "unknown"
-        except Exception as e:
-            print(f"[LLM] classify_visually failed: {e}")
-            return "unknown"
+        img = Image.open(io.BytesIO(image_bytes))
+
+        fallback_models = [settings.GEMINI_MODEL_FAST, "gemini-2.0-flash-lite", "gemini-flash-lite-latest", "gemini-1.5-flash"]
+        for model_name in fallback_models:
+            try:
+                print(f"[LLMService] Attempting classify_visually with: {model_name}")
+                simple_model = genai.GenerativeModel(
+                    model_name=model_name,
+                    generation_config=genai.types.GenerationConfig(temperature=0.1, max_output_tokens=30),
+                )
+                response = await asyncio.to_thread(
+                    simple_model.generate_content,
+                    [
+                        "Classify this image into exactly ONE of these categories:\n"
+                        "- disaster_rescue (floods, rising water, natural disasters, stranded people, emergency rescue, collapsed buildings, wildfires)\n"
+                        "- medical (prescription, medical report, X-ray, lab test)\n"
+                        "- legal_contract (contract, agreement, legal document)\n"
+                        "- bill_utility (utility bill, invoice, electricity, water bill)\n"
+                        "- receipt_invoice (store receipt, payment receipt)\n"
+                        "- scam_message (phishing, fraud SMS screenshot)\n"
+                        "- screenshot_ui (mobile app screenshot, website screenshot, error message)\n"
+                        "- government_document (passport, ID card, official government form)\n"
+                        "- unknown (none of the above)\n\n"
+                        "Reply with ONLY the category name, nothing else.",
+                        img,
+                    ],
+                )
+                raw = (response.text or "unknown").strip().lower().split()[0]
+                if raw in VALID_TYPES:
+                    return raw
+            except Exception as e:
+                print(f"[LLMService] classify_visually failed with {model_name}: {e}")
+
+        return "unknown"
 
     async def generate_title(self, text: str, doc_type: str, language: str = "en") -> str:
         """Generate a short human-readable title for the document."""
