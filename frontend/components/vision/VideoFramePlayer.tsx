@@ -138,20 +138,21 @@ export default function VideoFramePlayer({
     const interpolated: Detection[] = [];
     const matchedNextIndices = new Set<number>();
 
-    // Helper to check if two labels are compatible (e.g. different vehicle classes)
-    const isCompatibleLabel = (l1: string, l2: string) => {
-      if (l1 === l2) return true;
-      const vehicles = ["car", "truck", "bus", "motorcycle", "bicycle"];
-      return vehicles.includes(l1) && vehicles.includes(l2);
-    };
-
     // Greedy matching of detections between prev and next frames
     for (const dPrev of prevFrame.detections) {
       let bestMatchIdx = -1;
       let minDistance = 99999;
 
+      const prevArea = dPrev.bbox.w * dPrev.bbox.h;
+
       nextFrame.detections.forEach((dNext, idx) => {
-        if (!isCompatibleLabel(dPrev.label, dNext.label) || matchedNextIndices.has(idx)) return;
+        // Enforce exact label match to prevent car-to-bus matching
+        if (dPrev.label !== dNext.label || matchedNextIndices.has(idx)) return;
+
+        // Verify bounding box size similarity to prevent matching far-away objects with close-up ones
+        const nextArea = dNext.bbox.w * dNext.bbox.h;
+        const areaRatio = prevArea / Math.max(nextArea, 1);
+        if (areaRatio < 0.4 || areaRatio > 2.5) return;
 
         // Calculate center-point Euclidean distance
         const prevCx = dPrev.bbox.x + dPrev.bbox.w / 2;
@@ -160,8 +161,8 @@ export default function VideoFramePlayer({
         const nextCy = dNext.bbox.y + dNext.bbox.h / 2;
         const dist = Math.sqrt(Math.pow(nextCx - prevCx, 2) + Math.pow(nextCy - prevCy, 2));
 
-        // Up matching threshold to 250px to handle fast highway movement
-        if (dist < minDistance && dist < 250) {
+        // Tighter distance threshold (120px) to prevent matching across lanes
+        if (dist < minDistance && dist < 120) {
           minDistance = dist;
           bestMatchIdx = idx;
         }
@@ -171,10 +172,9 @@ export default function VideoFramePlayer({
         matchedNextIndices.add(bestMatchIdx);
         const dNext = nextFrame.detections[bestMatchIdx];
 
-        // LERP coordinates + use next label if they match to ensure visual continuity
+        // LERP coordinates
         interpolated.push({
           ...dPrev,
-          label: dNext.label, // use the latest classification label
           confidence: dPrev.confidence + pct * (dNext.confidence - dPrev.confidence),
           bbox: {
             x: dPrev.bbox.x + pct * (dNext.bbox.x - dPrev.bbox.x),
