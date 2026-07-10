@@ -89,25 +89,112 @@ export default function VideoFramePlayer({
     setCurrentTime(time);
   };
 
-  // Find the closest frame to the current timestamp
+  // Smoothly interpolate bounding boxes between frames (LERP)
   const getDetectionsForTime = (): Detection[] => {
     if (!frames || frames.length === 0) return [];
-    
-    // Find frame closest to currentTime
-    let closestFrame = frames[0];
-    let minDiff = Math.abs(frames[0].timestamp_sec - currentTime);
-    
-    for (const f of frames) {
-      const diff = Math.abs(f.timestamp_sec - currentTime);
-      if (diff < minDiff) {
-        minDiff = diff;
-        closestFrame = f;
+    if (frames.length === 1) return frames[0].detections;
+
+    // Sort frames by timestamp to be absolutely safe
+    const sorted = [...frames].sort((a, b) => a.timestamp_sec - b.timestamp_sec);
+
+    // Find the bounding frames for the currentTime
+    let prevFrame = sorted[0];
+    let nextFrame = sorted[sorted.length - 1];
+
+    for (let i = 0; i < sorted.length - 1; i++) {
+      if (currentTime >= sorted[i].timestamp_sec && currentTime <= sorted[i + 1].timestamp_sec) {
+        prevFrame = sorted[i];
+        nextFrame = sorted[i + 1];
+        break;
       }
     }
-    
-    // If the closest frame is too far (e.g. >3s away), maybe return empty or closest
-    // Since frame interval is 5s, we just return the closest frame
-    return closestFrame.detections;
+
+    // If we are outside bounds, return boundary detections
+    if (currentTime <= sorted[0].timestamp_sec) return sorted[0].detections;
+    if (currentTime >= sorted[sorted.length - 1].timestamp_sec) return sorted[sorted.length - 1].detections;
+
+    const tDiff = nextFrame.timestamp_sec - prevFrame.timestamp_sec;
+    if (tDiff <= 0.05) return prevFrame.detections; // Avoid division by zero
+
+    const pct = (currentTime - prevFrame.timestamp_sec) / tDiff;
+
+    const interpolated: Detection[] = [];
+
+    // Track matched next detections so we can add unmatched ones
+    const matchedNextIndices = new Set<number>();
+
+    // Greedy IoU/distance matching of detections between prev and next frames
+    for (const dPrev of prevFrame.detections) {
+      let bestMatchIdx = -1;
+      let minDistance = 99999;
+
+      // Find closest same-label detection in next frame
+      nextFrame.detections.forEach((dNext, idx) => {
+        if (dNext.label !== dPrev.label || matchedNextIndices.has(idx)) return;
+
+        // Calculate center-point Euclidean distance
+        const prevCx = dPrev.bbox.x + dPrev.bbox.w / 2;
+        const prevCy = dPrev.bbox.y + dPrev.bbox.h / 2;
+        const nextCx = dNext.bbox.x + dNext.bbox.w / 2;
+        const nextCy = dNext.bbox.y + dNext.bbox.h / 2;
+        const dist = Math.sqrt(Math.pow(nextCx - prevCx, 2) + Math.pow(nextCy - prevCy, 2));
+
+        // Bbox centers shouldn't be too far apart (max 150px) to prevent wrong matches
+        if (dist < minDistance && dist < 150) {
+          minDistance = dist;
+          bestMatchIdx = idx;
+        }
+      });
+
+      if (bestMatchIdx !== -1) {
+        matchedNextIndices.add(bestMatchIdx);
+        const dNext = nextFrame.detections[bestMatchIdx];
+
+        // LERP coordinates
+        interpolated.push({
+          ...dPrev,
+          confidence: dPrev.confidence + pct * (dNext.confidence - dPrev.confidence),
+          bbox: {
+            x: dPrev.bbox.x + pct * (dNext.bbox.x - dPrev.bbox.x),
+            y: dPrev.bbox.y + pct * (dNext.bbox.y - dPrev.bbox.y),
+            w: dPrev.bbox.w + pct * (dNext.bbox.w - dPrev.bbox.w),
+            h: dPrev.bbox.h + pct * (dNext.bbox.h - dPrev.bbox.h),
+          },
+        });
+      } else {
+        // Unmatched object disappearing — fade size to 0 or only show in first half of interval
+        if (pct < 0.5) {
+          interpolated.push({
+            ...dPrev,
+            bbox: {
+              ...dPrev.bbox,
+              // Shrink slowly as it fades out
+              w: dPrev.bbox.w * (1 - pct * 2),
+              h: dPrev.bbox.h * (1 - pct * 2),
+            },
+          });
+        }
+      }
+    }
+
+    // Add unmatched appearing next detections
+    nextFrame.detections.forEach((dNext, idx) => {
+      if (matchedNextIndices.has(idx)) return;
+      // Fade in from second half of interval
+      if (pct >= 0.5) {
+        const localPct = (pct - 0.5) * 2; // 0 to 1
+        interpolated.push({
+          ...dNext,
+          bbox: {
+            ...dNext.bbox,
+            w: dNext.bbox.w * localPct,
+            h: dNext.bbox.h * localPct,
+          },
+        });
+      }
+    });
+
+    return interpolated;
   };
 
   const activeDetections = getDetectionsForTime();
