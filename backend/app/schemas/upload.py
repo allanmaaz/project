@@ -18,7 +18,7 @@ class UploadCreateResponse(BaseModel):
 
 
 class UploadListItem(BaseModel):
-    id: str
+    id: uuid.UUID
     auto_title: str | None
     document_type: str | None
     detected_language: str
