@@ -98,4 +98,26 @@ class BasePipeline(ABC):
                     })
         raw["warnings"] = clean_warns
 
+        # Sanitize sections list to strictly match the expected AnalysisSection schema
+        sections = raw.get("sections")
+        clean_sections = []
+        if isinstance(sections, list):
+            for idx, item in enumerate(sections):
+                if isinstance(item, dict):
+                    # Ensure type is one of the allowed literals
+                    type_val = str(item.get("type") or "info").lower()
+                    if type_val not in ("info", "warning", "danger", "success", "neutral"):
+                        type_val = "info"
+
+                    clean_sections.append({
+                        "id": str(item.get("id") or f"sec_{idx}"),
+                        "title": str(item.get("title") or "Details"),
+                        "type": type_val,
+                        "content": item.get("content") if item.get("content") is not None else "",
+                        "items": [str(x) for x in item.get("items", [])] if isinstance(item.get("items"), list) else [],
+                        "risk_level": item.get("risk_level"),
+                        "icon": item.get("icon")
+                    })
+        raw["sections"] = clean_sections
+
         return raw
