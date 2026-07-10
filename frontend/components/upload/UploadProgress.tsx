@@ -2,8 +2,7 @@
 
 import React from "react";
 import { UploadStep } from "../../hooks/useUpload";
-import { Loader2, CheckCircle2, AlertCircle } from "lucide-react";
-import { Progress } from "../../components/ui/progress"; // Make simple Radix progress bar placeholder or render inline
+import { Loader2, CheckCircle2, AlertCircle, X } from "lucide-react";
 
 interface UploadProgressProps {
   progress: number;

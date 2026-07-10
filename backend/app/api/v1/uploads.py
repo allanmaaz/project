@@ -33,7 +33,7 @@ async def create_upload(
     """
     try:
         # Check limits
-        check_upload_rate(current_user)
+        await check_upload_rate(current_user)
         check_monthly_limit(current_user)
     except ClarifyBaseError as e:
         raise_http(e, 429)

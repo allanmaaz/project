@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Body
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import uuid
 import json
 from typing import AsyncGenerator
+from pydantic import BaseModel
 
 from app.database import get_db
 from app.middleware.auth import CurrentUser
@@ -13,11 +14,15 @@ from app.models.upload import Upload
 from app.models.chat import ChatMessage
 from app.models.analysis import AnalysisResult
 from app.models.user import User
-from app.schemas.chat import ChatHistoryResponse, ChatMessageResponse, SuggestionsResponse
+from app.schemas.chat import ChatHistoryResponse, ChatMessageResponse, SuggestionsResponse, ChatStreamRequest
 from app.services.llm_service import get_llm_service
 from app.utils.exceptions import raise_http, NotFoundError, ForbiddenError, ClarifyBaseError
 
 router = APIRouter()
+
+
+class ChatStreamRequest(BaseModel):
+    message: str
 
 @router.get("/{upload_id}", response_model=ChatHistoryResponse)
 async def get_chat_history(
@@ -62,10 +67,10 @@ async def get_chat_suggestions(
     return SuggestionsResponse(suggestions=upload.suggested_questions or [])
 
 
-@router.get("/{upload_id}/stream")
+@router.post("/{upload_id}/stream")
 async def stream_chat_response(
     upload_id: str,
-    message: str = Query(..., min_length=1),
+    payload: ChatStreamRequest,
     current_user: User = CurrentUser,
     db: AsyncSession = Depends(get_db)
 ):
@@ -73,8 +78,9 @@ async def stream_chat_response(
     Stream real-time Gemini answers via Server-Sent Events (SSE).
     Includes history context + RLS authorization checks.
     """
+    message = payload.message
     try:
-        check_chat_rate(current_user)
+        await check_chat_rate(current_user)
     except ClarifyBaseError as e:
         raise_http(e, 429)
 

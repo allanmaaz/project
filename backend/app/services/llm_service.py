@@ -70,8 +70,13 @@ class LLMService:
                 )
                 raw_text = response.text or "{}"
 
-                # Parse JSON
+                # Parse JSON with robust parser
                 result = self._parse_json(raw_text)
+                
+                # Validate result has expected structure
+                if not isinstance(result, dict) or not result:
+                    raise ValueError("Empty or invalid JSON result")
+                
                 token_usage = {
                     "prompt": getattr(response.usage_metadata, "prompt_token_count", 0),
                     "completion": getattr(response.usage_metadata, "candidates_token_count", 0),
@@ -190,25 +195,64 @@ class LLMService:
             yield f"\n\nSorry, I encountered an error. Please try again."
 
     def _parse_json(self, text: str) -> dict:
-        """Parse JSON from LLM response, handling markdown code blocks."""
+        """Parse JSON from LLM response with multiple fallback strategies."""
         text = text.strip()
-        # Remove markdown code fences if present
-        if text.startswith("```"):
-            lines = text.split("\n")
-            text = "\n".join(lines[1:-1] if lines[-1] == "```" else lines[1:])
-
+        
+        # Strategy 1: Direct parse
         try:
             return json.loads(text)
         except json.JSONDecodeError:
-            # Try to extract JSON object
-            import re
-            match = re.search(r"\{.*\}", text, re.DOTALL)
-            if match:
+            pass
+        
+        # Strategy 2: Remove markdown code fences
+        if text.startswith("```"):
+            lines = text.split("\n")
+            # Handle both ```json and ``` cases
+            if len(lines) >= 3:
+                text = "\n".join(lines[1:-1] if lines[-1] == "```" else lines[1:])
                 try:
-                    return json.loads(match.group())
+                    return json.loads(text)
                 except json.JSONDecodeError:
                     pass
-            return {}
+        
+        # Strategy 3: Find first complete JSON object
+        import re
+        # Match balanced braces - simplified approach
+        brace_count = 0
+        start_idx = -1
+        for i, char in enumerate(text):
+            if char == '{':
+                if brace_count == 0:
+                    start_idx = i
+                brace_count += 1
+            elif char == '}':
+                brace_count -= 1
+                if brace_count == 0 and start_idx >= 0:
+                    candidate = text[start_idx:i+1]
+                    try:
+                        return json.loads(candidate)
+                    except json.JSONDecodeError:
+                        pass
+        
+        # Strategy 4: Regex fallback for simple objects
+        match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', text, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group())
+            except json.JSONDecodeError:
+                pass
+        
+        # Strategy 5: Fix common LLM JSON issues
+        fixed = text.replace("'", '"')  # Single to double quotes
+        fixed = re.sub(r',\s*}', '}', fixed)  # Trailing commas
+        fixed = re.sub(r',\s*]', ']', fixed)
+        try:
+            return json.loads(fixed)
+        except json.JSONDecodeError:
+            pass
+        
+        # All strategies failed - return empty dict
+        return {}
 
 
 # Module-level singleton

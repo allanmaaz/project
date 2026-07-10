@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { api } from "../lib/api";
 import { getAccessToken } from "../lib/supabase";
 
@@ -16,20 +16,20 @@ export const useChat = (uploadId: string) => {
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const controllerRef = useRef<AbortController | null>(null);
 
-  const cleanup = () => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
+  const cleanup = useCallback(() => {
+    if (controllerRef.current) {
+      controllerRef.current.abort();
+      controllerRef.current = null;
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadChatHistory();
     loadSuggestions();
     return cleanup;
-  }, [uploadId]);
+  }, [uploadId, cleanup]);
 
   const loadChatHistory = async () => {
     setIsLoading(true);
@@ -85,52 +85,66 @@ export const useChat = (uploadId: string) => {
         throw new Error("You must be logged in to chat.");
       }
 
-      // Build EventSource link with auth token in URL parameters
-      const streamUrl = api.chat.getStreamUrl(uploadId, text, token);
-      const eventSource = new EventSource(streamUrl);
-      eventSourceRef.current = eventSource;
+      // Use the API client's streamChat method
+      controllerRef.current = new AbortController();
+      const response = await api.chat.streamChat(uploadId, text, token);
 
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({ error: { message: "Stream failed" } }));
+        throw new Error(errData.error?.message || "Failed to start chat stream");
+      }
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
       let accumulatedContent = "";
 
-      eventSource.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          
-          if (data.token) {
-            accumulatedContent += data.token;
-            // Update the temporary AI message content
-            setMessages((prev) =>
-              prev.map((msg) =>
-                msg.id === tempAiMsgId ? { ...msg, content: accumulatedContent } : msg
-              )
-            );
-          } else if (data.event === "done") {
-            cleanup();
-            setIsStreaming(false);
-            // Refresh with real database records to get exact IDs and timestamps
-            loadChatHistory();
-          } else if (data.event === "error") {
-            cleanup();
-            setIsStreaming(false);
-            setError(data.message || "Error generating AI response.");
-            // Remove the empty/incomplete AI bubble
-            setMessages((prev) => prev.filter((msg) => msg.id !== tempAiMsgId));
-          }
-        } catch {
-          // Ignore parse errors
-        }
-      };
+      if (!reader) throw new Error("No response body");
 
-      eventSource.onerror = (err) => {
-        cleanup();
-        setIsStreaming(false);
-        setError("Connection lost. Please try again.");
-        setMessages((prev) => prev.filter((msg) => msg.id !== tempAiMsgId));
-      };
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split("\n");
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              
+              if (data.token) {
+                accumulatedContent += data.token;
+                setMessages((prev) =>
+                  prev.map((msg) =>
+                    msg.id === tempAiMsgId ? { ...msg, content: accumulatedContent } : msg
+                  )
+                );
+              } else if (data.event === "done") {
+                cleanup();
+                setIsStreaming(false);
+                loadChatHistory();
+              } else if (data.event === "error") {
+                cleanup();
+                setIsStreaming(false);
+                setError(data.message || "Error generating AI response.");
+                setMessages((prev) => prev.filter((msg) => msg.id !== tempAiMsgId));
+              }
+            } catch {
+              // Ignore parse errors
+            }
+          }
+        }
+      }
+
+      // Stream ended normally
+      cleanup();
+      setIsStreaming(false);
+      loadChatHistory();
 
     } catch (err: any) {
       cleanup();
       setIsStreaming(false);
+      if (err.name === "AbortError") return;
       setError(err.message || "Failed to initiate chat stream.");
       setMessages((prev) => prev.filter((msg) => msg.id !== tempAiMsgId));
     }

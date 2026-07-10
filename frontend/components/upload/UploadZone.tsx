@@ -14,7 +14,10 @@ export default function UploadZone({ onFileSelect, disabled }: UploadZoneProps) 
   const onDrop = useCallback(
     (acceptedFiles: File[]) => {
       if (acceptedFiles.length > 0 && !disabled) {
-        onFileSelect(acceptedFiles[0]);
+        const file = acceptedFiles[0];
+        if (file) {
+          onFileSelect(file);
+        }
       }
     },
     [onFileSelect, disabled]

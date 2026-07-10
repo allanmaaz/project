@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     # Monitoring
     SENTRY_DSN: str = ""
 
+    # Redis (for rate limiting, caching)
+    REDIS_URL: str = "redis://localhost:6379/0"
+
     @property
     def allowed_origins_list(self) -> list[str]:
         return [o.strip() for o in self.ALLOWED_ORIGINS.split(",")]

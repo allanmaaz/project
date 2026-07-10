@@ -6,6 +6,10 @@ class ChatMessageRequest(BaseModel):
     message: str
 
 
+class ChatStreamRequest(BaseModel):
+    message: str
+
+
 class ChatMessageResponse(BaseModel):
     id: str
     role: str
