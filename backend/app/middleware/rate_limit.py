@@ -65,6 +65,8 @@ _limiter = RateLimiter()
 
 async def check_upload_rate(user: User) -> None:
     """Raise if user exceeds upload rate limit."""
+    if settings.APP_ENV == "development":
+        return
     limit = (
         settings.RATE_LIMIT_UPLOADS_FREE
         if user.plan == "free"
@@ -76,12 +78,16 @@ async def check_upload_rate(user: User) -> None:
 
 def check_monthly_limit(user: User) -> None:
     """Raise if free-tier user has hit their monthly upload limit."""
+    if settings.APP_ENV == "development":
+        return
     if user.plan == "free" and user.uploads_this_month >= settings.FREE_PLAN_MONTHLY_UPLOADS:
         raise UploadLimitError(settings.FREE_PLAN_MONTHLY_UPLOADS)
 
 
 async def check_chat_rate(user: User) -> None:
     """Raise if user exceeds chat message rate limit."""
+    if settings.APP_ENV == "development":
+        return
     limit = (
         settings.RATE_LIMIT_CHAT_FREE
         if user.plan == "free"
