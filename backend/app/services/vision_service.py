@@ -84,13 +84,14 @@ class VisionService:
         mime_type: str,
         run_sam: bool,
         conf_threshold: float,
+        imgsz: int = 320,  # 320 is 4x faster on CPU than 640
     ) -> dict:
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         img_w, img_h = img.size
         img_np = np.array(img)
 
         model = self._get_yolo()
-        results = model(img_np, conf=conf_threshold, verbose=False)[0]
+        results = model(img_np, conf=conf_threshold, imgsz=imgsz, verbose=False)[0]
 
         detections = []
         summary: dict[str, int] = {}

@@ -6,39 +6,125 @@ LLM Service using Google Gemini 1.5 Flash (FREE tier).
 """
 import json
 import asyncio
+import base64
+import httpx
 from typing import AsyncGenerator
+from contextvars import ContextVar
 import google.generativeai as genai
 from app.config import settings
 from app.utils.exceptions import LLMUnavailableError
 from app.utils.text_utils import truncate_for_llm, estimate_token_count
 
+# Request-scoped active LLM provider ContextVar
+active_llm_provider: ContextVar[str] = ContextVar("active_llm_provider", default="gemini")
+
 
 class LLMService:
     def __init__(self):
-        if not settings.GEMINI_API_KEY:
-            raise RuntimeError("GEMINI_API_KEY is not set. Get your free key at https://aistudio.google.com/app/apikey")
+        self.gemini_available = bool(settings.GEMINI_API_KEY)
+        
+        if self.gemini_available:
+            # Configure to use REST transport instead of gRPC to prevent connection hangs
+            genai.configure(api_key=settings.GEMINI_API_KEY, transport="rest")
 
-        # Configure to use REST transport instead of gRPC to prevent connection hangs
-        genai.configure(api_key=settings.GEMINI_API_KEY, transport="rest")
+            # Flash model — free tier, very fast, 1M context
+            self.model = genai.GenerativeModel(
+                model_name=settings.GEMINI_MODEL_FULL,
+                generation_config=genai.types.GenerationConfig(
+                    temperature=settings.GEMINI_TEMPERATURE,
+                    max_output_tokens=settings.GEMINI_MAX_OUTPUT_TOKENS,
+                    response_mime_type="application/json",
+                ),
+            )
 
-        # Flash model — free tier, very fast, 1M context
-        self.model = genai.GenerativeModel(
-            model_name=settings.GEMINI_MODEL_FULL,
-            generation_config=genai.types.GenerationConfig(
-                temperature=settings.GEMINI_TEMPERATURE,
-                max_output_tokens=settings.GEMINI_MAX_OUTPUT_TOKENS,
-                response_mime_type="application/json",
-            ),
-        )
+            # Separate model for streaming chat (no JSON constraint)
+            self.chat_model = genai.GenerativeModel(
+                model_name=settings.GEMINI_MODEL_FAST,
+                generation_config=genai.types.GenerationConfig(
+                    temperature=0.3,
+                    max_output_tokens=2048,
+                ),
+            )
+        else:
+            print("[LLMService] GEMINI_API_KEY is not set. Gemini features are disabled; falling back to local Ollama.")
 
-        # Separate model for streaming chat (no JSON constraint)
-        self.chat_model = genai.GenerativeModel(
-            model_name=settings.GEMINI_MODEL_FAST,
-            generation_config=genai.types.GenerationConfig(
-                temperature=0.3,
-                max_output_tokens=2048,
-            ),
-        )
+    def _get_provider(self) -> str:
+        """Get the active provider, falling back to ollama if Gemini is unavailable."""
+        if not self.gemini_available:
+            return "ollama"
+        return active_llm_provider.get()
+
+    async def is_ollama_available(self) -> bool:
+        """Check if local Ollama service is running."""
+        try:
+            async with httpx.AsyncClient(timeout=1.0) as client:
+                response = await client.get(f"{settings.OLLAMA_URL}/api/tags")
+                return response.status_code == 200
+        except Exception:
+            return False
+
+    async def _analyze_ollama(
+        self,
+        system_prompt: str,
+        prompt: str,
+        image_bytes: bytes = None
+    ) -> tuple[dict, dict]:
+        """Call Ollama for structured analysis."""
+        payload = {
+            "model": settings.OLLAMA_MODEL,
+            "prompt": prompt,
+            "system": system_prompt,
+            "format": "json",
+            "stream": False,
+            "options": {
+                "temperature": settings.OLLAMA_TEMPERATURE
+            }
+        }
+        if image_bytes:
+            payload["images"] = [base64.b64encode(image_bytes).decode("utf-8")]
+
+        # Timeout 90s since local CPU inference can take some time
+        async with httpx.AsyncClient(timeout=90.0) as client:
+            try:
+                response = await client.post(f"{settings.OLLAMA_URL}/api/generate", json=payload)
+                response.raise_for_status()
+                res_data = response.json()
+                raw_text = res_data.get("response", "{}")
+                
+                result = self._parse_json(raw_text)
+                
+                # Estimate token usage
+                prompt_tokens = res_data.get("prompt_eval_count", 0) or estimate_token_count(prompt)
+                comp_tokens = res_data.get("eval_count", 0) or estimate_token_count(raw_text)
+                
+                token_usage = {
+                    "prompt": prompt_tokens,
+                    "completion": comp_tokens,
+                    "total": prompt_tokens + comp_tokens,
+                }
+                return result, token_usage
+            except Exception as e:
+                print(f"[Ollama] generate failed: {e}")
+                # If model doesn't support vision, retry without images
+                if image_bytes and "images" in payload:
+                    print("[Ollama] Retrying text-only generation...")
+                    del payload["images"]
+                    try:
+                        response = await client.post(f"{settings.OLLAMA_URL}/api/generate", json=payload)
+                        response.raise_for_status()
+                        res_data = response.json()
+                        raw_text = res_data.get("response", "{}")
+                        result = self._parse_json(raw_text)
+                        prompt_tokens = res_data.get("prompt_eval_count", 0) or estimate_token_count(prompt)
+                        comp_tokens = res_data.get("eval_count", 0) or estimate_token_count(raw_text)
+                        return result, {
+                            "prompt": prompt_tokens,
+                            "completion": comp_tokens,
+                            "total": prompt_tokens + comp_tokens,
+                        }
+                    except Exception as re:
+                        raise LLMUnavailableError()
+                raise LLMUnavailableError()
 
     async def analyze(
         self,
@@ -49,14 +135,12 @@ class LLMService:
         mime_type: str = None
     ) -> tuple[dict, dict]:
         """
-        Send document to Gemini for structured JSON analysis.
+        Send document to Gemini or Ollama for structured JSON analysis.
         Returns (parsed_result_dict, token_usage_dict).
-        Supports multimodal image input if image_bytes and mime_type are provided.
         """
-        # Truncate if somehow too long (Gemini 1.5 Flash: 1M context)
+        # Truncate if too long
         document_text = truncate_for_llm(document_text, max_chars=200_000)
 
-        prompt_parts = []
         text_content = (
             f"{system_prompt}\n\n"
             f"OUTPUT LANGUAGE: {output_language}\n\n"
@@ -69,8 +153,15 @@ class LLMService:
                 f"{'─' * 60}\n\n"
             )
         text_content += "Please analyze this document/image and return the expected structured JSON."
-        prompt_parts.append(text_content)
 
+        # Route to Ollama if configured
+        provider = self._get_provider()
+        if provider == "ollama":
+            print("[LLMService] Routing analyze request to Ollama...")
+            return await self._analyze_ollama(system_prompt, text_content, image_bytes)
+
+        # Gemini execution flow
+        prompt_parts = [text_content]
         if image_bytes and mime_type:
             from PIL import Image
             import io
@@ -87,11 +178,8 @@ class LLMService:
                     prompt_parts,
                 )
                 raw_text = response.text or "{}"
-
-                # Parse JSON with robust parser
                 result = self._parse_json(raw_text)
                 
-                # Validate result has expected structure
                 if not isinstance(result, dict) or not result:
                     raise ValueError("Empty or invalid JSON result")
                 
@@ -103,31 +191,65 @@ class LLMService:
                 return result, token_usage
 
             except Exception as e:
-                import traceback
-                print(f"[LLMService] Error during content generation (attempt {attempt+1}/3): {e}")
-                traceback.print_exc()
+                print(f"[LLMService] Gemini error (attempt {attempt+1}/3): {e}")
                 if attempt == 2:
+                    # Auto-fallback to Ollama if running
+                    if await self.is_ollama_available():
+                        print("[LLMService] Gemini failed permanently. Falling back to local Ollama...")
+                        return await self._analyze_ollama(system_prompt, text_content, image_bytes)
                     raise LLMUnavailableError()
-                # Respect Gemini rate limit — wait before retry
-                wait = 2 ** attempt  # 1s, 2s, 4s
+                wait = 2 ** attempt
                 await asyncio.sleep(wait)
 
         raise LLMUnavailableError()
 
     async def classify_visually(self, image_bytes: bytes, mime_type: str) -> str:
         """
-        Use Gemini Vision to classify an image into a document type.
+        Use Gemini or Ollama to classify an image into a document type.
         Returns one of the known document type strings.
-        Used when OCR yields no/little text (e.g. flood photo, accident scene).
         """
-        import io
-        from PIL import Image
-
         VALID_TYPES = [
             "medical", "legal_contract", "bill_utility", "receipt_invoice",
             "scam_message", "screenshot_ui", "disaster_rescue", "government_document", "unknown"
         ]
 
+        # Route to Ollama if configured
+        provider = self._get_provider()
+        if provider == "ollama":
+            print("[LLMService] Routing classify_visually to Ollama...")
+            payload = {
+                "model": settings.OLLAMA_MODEL,
+                "prompt": (
+                    "Classify this image into exactly ONE of these categories:\n"
+                    "- disaster_rescue (floods, rising water, natural disasters, stranded people, emergency rescue, collapsed buildings, wildfires)\n"
+                    "- medical (prescription, medical report, X-ray, lab test)\n"
+                    "- legal_contract (contract, agreement, legal document)\n"
+                    "- bill_utility (utility bill, invoice, electricity, water bill)\n"
+                    "- receipt_invoice (store receipt, payment receipt)\n"
+                    "- scam_message (phishing, fraud SMS screenshot)\n"
+                    "- screenshot_ui (mobile app screenshot, website screenshot, error message)\n"
+                    "- government_document (passport, ID card, official government form)\n"
+                    "- unknown (none of the above)\n\n"
+                    "Reply with ONLY the category name, nothing else."
+                ),
+                "images": [base64.b64encode(image_bytes).decode("utf-8")],
+                "stream": False,
+                "options": {"temperature": 0.1}
+            }
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    response = await client.post(f"{settings.OLLAMA_URL}/api/generate", json=payload)
+                    response.raise_for_status()
+                    res_data = response.json()
+                    raw = (res_data.get("response", "unknown")).strip().lower().split()[0]
+                    return raw if raw in VALID_TYPES else "unknown"
+            except Exception as e:
+                print(f"[Ollama] classify_visually failed: {e}")
+                return "unknown"
+
+        # Gemini execution flow
+        import io
+        from PIL import Image
         try:
             img = Image.open(io.BytesIO(image_bytes))
             simple_model = genai.GenerativeModel(
@@ -164,8 +286,28 @@ class LLMService:
             f"(max 8 words, in {language}). Return ONLY the title text, nothing else.\n\n"
             f"Document excerpt:\n{text[:500]}"
         )
+
+        provider = self._get_provider()
+        if provider == "ollama":
+            print("[LLMService] Routing generate_title to Ollama...")
+            payload = {
+                "model": settings.OLLAMA_MODEL,
+                "prompt": prompt,
+                "stream": False,
+                "options": {"temperature": 0.5}
+            }
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    response = await client.post(f"{settings.OLLAMA_URL}/api/generate", json=payload)
+                    response.raise_for_status()
+                    title = response.json().get("response", "").strip().strip('"').strip("'")
+                    return title[:100] if title else f"{doc_type.replace('_', ' ').title()} Document"
+            except Exception as e:
+                print(f"[Ollama] generate_title failed: {e}")
+                return f"{doc_type.replace('_', ' ').title()} Document"
+
+        # Gemini execution flow
         try:
-            # Use model without JSON constraint for title
             title_model = genai.GenerativeModel(settings.GEMINI_MODEL_FAST)
             response = await asyncio.to_thread(title_model.generate_content, prompt)
             title = (response.text or "").strip().strip('"').strip("'")
@@ -182,6 +324,35 @@ class LLMService:
             f"to better understand this document. Write in {language}.\n"
             f'Return a JSON array of strings: ["question 1", "question 2", ...]'
         )
+
+        provider = self._get_provider()
+        if provider == "ollama":
+            print("[LLMService] Routing generate_suggestions to Ollama...")
+            payload = {
+                "model": settings.OLLAMA_MODEL,
+                "prompt": prompt,
+                "format": "json",
+                "stream": False,
+                "options": {"temperature": 0.4}
+            }
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    response = await client.post(f"{settings.OLLAMA_URL}/api/generate", json=payload)
+                    response.raise_for_status()
+                    questions = json.loads(response.json().get("response", "[]"))
+                    if isinstance(questions, list):
+                        return [str(q) for q in questions[:5]]
+            except Exception as e:
+                print(f"[Ollama] generate_suggestions failed: {e}")
+            return [
+                "Can you explain this document in simpler terms?",
+                "What are the most important things I need to know?",
+                "Are there any risks or warnings I should be aware of?",
+                "What actions do I need to take?",
+                "What deadlines or dates should I note?",
+            ]
+
+        # Gemini execution flow
         try:
             model = genai.GenerativeModel(
                 settings.GEMINI_MODEL_FAST,
@@ -214,7 +385,6 @@ class LLMService:
     ) -> AsyncGenerator[str, None]:
         """
         Stream a chat response about the uploaded document.
-        Yields text tokens as they arrive from Gemini.
         """
         system_instruction = (
             f"You are a helpful assistant explaining a {doc_type.replace('_', ' ')} document. "
@@ -231,9 +401,42 @@ class LLMService:
             f"- Keep responses concise but complete"
         )
 
-        # Build Gemini chat history
+        provider = self._get_provider()
+        if provider == "ollama":
+            print("[LLMService] Routing stream_chat to Ollama...")
+            # Format history for Ollama chat API
+            ollama_messages = [{"role": "system", "content": system_instruction}]
+            for msg in history:
+                role = "user" if msg["role"] == "user" else "assistant"
+                ollama_messages.append({"role": role, "content": msg["content"]})
+
+            payload = {
+                "model": settings.OLLAMA_MODEL,
+                "messages": ollama_messages,
+                "stream": True,
+                "options": {"temperature": 0.3}
+            }
+
+            try:
+                # Stream directly via HTTP client
+                async with httpx.AsyncClient(timeout=60.0) as client:
+                    async with client.stream("POST", f"{settings.OLLAMA_URL}/api/chat", json=payload) as response:
+                        response.raise_for_status()
+                        async for line in response.aiter_lines():
+                            if line:
+                                chunk = json.loads(line)
+                                token = chunk.get("message", {}).get("content", "")
+                                if token:
+                                    yield token
+                return
+            except Exception as e:
+                print(f"[Ollama] stream_chat failed: {e}")
+                yield f"\n\nSorry, I encountered an error communicating with Ollama: {e}"
+                return
+
+        # Gemini execution flow
         gemini_history = []
-        for msg in history[:-1]:  # all but last (which is the current user message)
+        for msg in history[:-1]:  # all but last
             role = "user" if msg["role"] == "user" else "model"
             gemini_history.append({"role": role, "parts": [msg["content"]]})
 
@@ -241,7 +444,6 @@ class LLMService:
 
         try:
             chat_session = self.chat_model.start_chat(history=gemini_history)
-            # Add system context to first message if no history
             if not gemini_history:
                 current_message = f"{system_instruction}\n\nUser question: {current_message}"
 

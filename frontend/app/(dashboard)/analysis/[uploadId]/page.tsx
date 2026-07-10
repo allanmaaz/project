@@ -89,7 +89,7 @@ export default function AnalysisPage() {
   }
 
   const showVisionTab = visionData && (visionData.has_detections || visionData.has_video);
-  const rawFileUrl = `${api.baseUrl}/uploads/${uploadId}/raw`; // direct link to storage
+  const rawFileUrl = `${api.getBaseUrl()}/uploads/${uploadId}/raw`; // direct link to storage
 
   return (
     <div className="space-y-6">

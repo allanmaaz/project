@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     GEMINI_MAX_OUTPUT_TOKENS: int = 8192
     GEMINI_TEMPERATURE: float = 0.2
 
+    # AI — Ollama (Local LLM)
+    OLLAMA_URL: str = "http://localhost:11434"
+    OLLAMA_MODEL: str = "llama3.2:3b"
+    OLLAMA_TEMPERATURE: float = 0.2
+
     # File limits
     MAX_FILE_SIZE_MB: int = 20
     MAX_PDF_SIZE_MB: int = 50
