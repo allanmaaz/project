@@ -56,6 +56,7 @@ export default function RiskScore({ score }: RiskScoreProps) {
             className={`fill-none transition-all duration-1000 ease-out ${getRiskColor(score)}`}
             strokeWidth="4.5"
             strokeDasharray={circ}
+            initial={{ strokeDashoffset: circ }}
             animate={{ strokeDashoffset: strokeOffset }}
             strokeLinecap="round"
           />

@@ -37,7 +37,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   if (!isAuthenticated) return null;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-bg-base text-foreground">
+    <div className="flex h-screen overflow-hidden bg-bg-base text-foreground" suppressHydrationWarning>
       {/* Desktop Navigation */}
       <Sidebar />
 
