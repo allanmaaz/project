@@ -4,9 +4,20 @@ from app.schemas.analysis import PipelineResult
 
 
 class DisasterPipeline(BasePipeline):
-    async def run(self, text: str, language: str) -> PipelineResult:
+    async def run(
+        self,
+        text: str,
+        language: str,
+        image_bytes: bytes = None,
+        mime_type: str = None,
+    ) -> PipelineResult:
         prompt = get_disaster_prompt(language)
-        raw, token_usage = await self.llm.analyze(prompt, text, language)
+        # Pass image bytes so Gemini can visually analyze the flood/disaster photo
+        raw, token_usage = await self.llm.analyze(
+            prompt, text, language,
+            image_bytes=image_bytes,
+            mime_type=mime_type,
+        )
         raw = self._enrich_result(raw, text)
         return PipelineResult(
             summary=raw.get("summary", ""),

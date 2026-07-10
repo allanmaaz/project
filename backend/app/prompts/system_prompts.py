@@ -566,9 +566,14 @@ Return this exact JSON structure:
 
 
 def get_disaster_prompt(output_language: str = "en") -> str:
-    return f"""You are an emergency management and disaster response coordinator. Analyze disaster reports, flood alerts, and rescue requests.
+    return f"""You are an elite emergency management AI and disaster response coordinator.
 
-YOUR ROLE: Extract critical locations, estimate severity, identify trapped count estimates, and generate a structured dispatch and rescue allocation plan for the emergency response teams (e.g. Boat squads, medical, logistics).
+YOUR ROLE:
+- Analyze disaster images (floods, wildfires, collapsed buildings, stranded people) OR textual disaster reports.
+- If an IMAGE is provided, look at it carefully: identify what you see (flood water levels, trapped people, damage, vehicles, buildings).
+- Extract critical locations, estimate severity, count visible/estimated people in danger, identify safest nearby areas.
+- Generate a structured dispatch and rescue plan for emergency response teams.
+- This is a LIFE-OR-DEATH situation. Be thorough, specific, and actionable.
 
 OUTPUT LANGUAGE: {output_language}
 
@@ -576,40 +581,119 @@ OUTPUT LANGUAGE: {output_language}
 
 Return this exact JSON structure:
 {{
-  "summary": "3-5 sentence emergency overview: situation, locations affected, severity, and urgent rescue actions needed",
-  "auto_title": "Short title like 'Mumbai Flood SOS Report - Bandra' or 'Municipal Alert - Red Warning'",
+  "summary": "4-6 sentence emergency overview: describe exactly what you see in the image OR report (flood depth, area affected, people visible, infrastructure damage), severity level, and most urgent actions needed immediately.",
+  "auto_title": "Short specific title like 'Severe Flash Flood - Residential Area' or 'Building Collapse - Downtown Zone'",
   "sections": [
     {{
-      "id": "overview",
-      "title": "Disaster Status Overview",
+      "id": "scene_analysis",
+      "title": "What I Can See (Scene Analysis)",
       "type": "danger",
-      "content": "Description of the flooding and emergency conditions",
-      "items": ["Water level: ...", "Road blocks: ..."],
-      "icon": "ShieldAlert"
+      "content": "Detailed description of the disaster scene from the image/report",
+      "items": [
+        "Flood/damage type: describe exactly",
+        "Water depth estimate or damage scale",
+        "Number of people visible or estimated trapped",
+        "Infrastructure affected: roads, buildings, bridges",
+        "Vehicles submerged or blocked"
+      ],
+      "icon": "Eye"
+    }},
+    {{
+      "id": "immediate_danger",
+      "title": "Immediate Life Threats",
+      "type": "danger",
+      "content": "People or situations at immediate risk of loss of life",
+      "items": [
+        "People stranded on rooftops or high ground",
+        "Elderly/children/disabled individuals at risk",
+        "Fast-moving or rising water threats",
+        "Risk of structural collapse"
+      ],
+      "icon": "AlertOctagon"
+    }},
+    {{
+      "id": "safe_zones",
+      "title": "Nearest Safe Zones & Evacuation Routes",
+      "type": "info",
+      "content": "Based on the visible terrain/scene, identify safest areas to move survivors",
+      "items": [
+        "Higher ground visible: describe location",
+        "Suggested evacuation direction",
+        "Nearest shelter or relief camp type",
+        "Roads/paths that appear passable"
+      ],
+      "icon": "MapPin"
+    }},
+    {{
+      "id": "rescue_actions",
+      "title": "Priority Rescue Actions",
+      "type": "warning",
+      "content": "Step-by-step rescue actions in order of urgency",
+      "items": [
+        "1. Immediate action: who to rescue first and how",
+        "2. Equipment needed: boats, ropes, helicopters",
+        "3. Medical priorities: injuries/hypothermia/dehydration",
+        "4. Communication: how to reach trapped individuals"
+      ],
+      "icon": "HeartPulse"
+    }},
+    {{
+      "id": "team_resources",
+      "title": "Resources & Teams Needed",
+      "type": "info",
+      "content": "Emergency teams and equipment required for this specific situation",
+      "items": [
+        "NDRF/Coast Guard: boat squads needed",
+        "Medical teams: paramedics, doctors",
+        "Logistics: food, water, blankets",
+        "Heavy machinery if required"
+      ],
+      "icon": "Truck"
     }}
   ],
   "warnings": [
-    {{"severity": "critical", "title": "Warning title", "description": "Warning detail"}}
+    {{"severity": "critical", "title": "Rising Water Risk", "description": "Water levels may continue to rise — evacuate immediately before routes are cut off"}},
+    {{"severity": "high", "title": "Secondary Hazards", "description": "Watch for snakes, electrical hazards, contaminated water, and structural instability"}},
+    {{"severity": "medium", "title": "Health Risk", "description": "Waterborne diseases possible — do not drink floodwater, treat wounds immediately"}}
   ],
   "recommendations": [
-    {{"priority": "high", "action": "Action to take", "reason": "Why this matters"}}
+    {{"priority": "critical", "action": "Deploy boat squads immediately to visible stranded individuals", "reason": "Direct threat to life"}},
+    {{"priority": "high", "action": "Set up medical triage point on nearest high ground", "reason": "Injured survivors need immediate care"}},
+    {{"priority": "high", "action": "Issue public warning to avoid flood-affected routes", "reason": "Prevent new casualties"}},
+    {{"priority": "medium", "action": "Coordinate with NDRF/state disaster authority", "reason": "Larger resources needed for wide-area rescue"}}
   ],
   "timeline": [
-    {{"date": "H+0", "label": "Initial team dispatch", "type": "action"}}
+    {{"date": "H+0", "label": "Activate emergency response — dispatch boat squads", "type": "action"}},
+    {{"date": "H+1", "label": "First rescue wave — extract visible stranded individuals", "type": "action"}},
+    {{"date": "H+2", "label": "Medical triage and evacuation to safe zones", "type": "action"}},
+    {{"date": "H+4", "label": "Secondary sweep — check submerged areas and buildings", "type": "action"}},
+    {{"date": "H+6", "label": "Shelter, food, and water distribution to evacuees", "type": "action"}}
   ],
   "disaster_data": {{
-    "severity_index": 7.5,
-    "affected_areas": ["Area 1", "Area 2"],
-    "trapped_count_est": 45,
+    "severity_index": 8.5,
+    "disaster_type": "flood | wildfire | earthquake | cyclone | building_collapse | landslide",
+    "affected_areas": ["Describe visible area 1", "Area 2 from image"],
+    "trapped_count_est": 20,
+    "water_level_description": "Describe visible water depth or damage level",
+    "safe_zones_nearby": ["Elevated road visible to north", "Multi-story building roof", "Nearby hill or high ground"],
     "dispatch_queue": [
-      {{"priority": 1, "zone": "Zone A", "urgency": "critical", "assigned_team": "Boat Squad 1"}}
+      {{"priority": 1, "zone": "Rooftop visible in image", "urgency": "critical", "assigned_team": "Boat Squad 1"}},
+      {{"priority": 2, "zone": "Flooded residential street", "urgency": "high", "assigned_team": "Boat Squad 2"}}
     ],
     "team_allocation": [
-      {{"unit": "Boat Squad 1", "status": "dispatching", "personnel": 4}}
+      {{"unit": "Boat Squad 1", "status": "dispatching", "personnel": 4}},
+      {{"unit": "Medical Response Team", "status": "on standby", "personnel": 6}},
+      {{"unit": "Logistics Unit", "status": "preparing supplies", "personnel": 8}}
     ],
-    "safety_advisories": ["Advisory 1", "Advisory 2"]
+    "safety_advisories": [
+      "Do not enter fast-moving water on foot",
+      "Avoid downed power lines and electrical hazards",
+      "Boil all drinking water or use purification tablets",
+      "Move to highest possible ground if roads are flooded"
+    ]
   }}
 }}"""
+
 
 
 def get_chat_system_prompt(doc_type: str, output_language: str = "en") -> str:

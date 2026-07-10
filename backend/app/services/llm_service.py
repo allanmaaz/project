@@ -45,28 +45,46 @@ class LLMService:
         system_prompt: str,
         document_text: str,
         output_language: str = "en",
+        image_bytes: bytes = None,
+        mime_type: str = None
     ) -> tuple[dict, dict]:
         """
         Send document to Gemini for structured JSON analysis.
         Returns (parsed_result_dict, token_usage_dict).
+        Supports multimodal image input if image_bytes and mime_type are provided.
         """
         # Truncate if somehow too long (Gemini 1.5 Flash: 1M context)
         document_text = truncate_for_llm(document_text, max_chars=200_000)
 
-        full_prompt = (
+        prompt_parts = []
+        text_content = (
             f"{system_prompt}\n\n"
             f"OUTPUT LANGUAGE: {output_language}\n\n"
-            f"DOCUMENT TO ANALYZE:\n"
-            f"{'─' * 60}\n"
-            f"{document_text}\n"
-            f"{'─' * 60}"
         )
+        if document_text:
+            text_content += (
+                f"DOCUMENT TEXT EXTRACTED VIA OCR:\n"
+                f"{'─' * 60}\n"
+                f"{document_text}\n"
+                f"{'─' * 60}\n\n"
+            )
+        text_content += "Please analyze this document/image and return the expected structured JSON."
+        prompt_parts.append(text_content)
+
+        if image_bytes and mime_type:
+            from PIL import Image
+            import io
+            try:
+                img = Image.open(io.BytesIO(image_bytes))
+                prompt_parts.append(img)
+            except Exception as e:
+                print(f"DEBUG LLM: Failed to open image for multimodal analysis: {e}")
 
         for attempt in range(3):
             try:
                 response = await asyncio.to_thread(
                     self.model.generate_content,
-                    full_prompt,
+                    prompt_parts,
                 )
                 raw_text = response.text or "{}"
 
@@ -92,6 +110,49 @@ class LLMService:
                 await asyncio.sleep(wait)
 
         raise LLMUnavailableError()
+
+    async def classify_visually(self, image_bytes: bytes, mime_type: str) -> str:
+        """
+        Use Gemini Vision to classify an image into a document type.
+        Returns one of the known document type strings.
+        Used when OCR yields no/little text (e.g. flood photo, accident scene).
+        """
+        import io
+        from PIL import Image
+
+        VALID_TYPES = [
+            "medical", "legal_contract", "bill_utility", "receipt_invoice",
+            "scam_message", "screenshot_ui", "disaster_rescue", "government_document", "unknown"
+        ]
+
+        try:
+            img = Image.open(io.BytesIO(image_bytes))
+            simple_model = genai.GenerativeModel(
+                model_name=settings.GEMINI_MODEL_FAST,
+                generation_config=genai.types.GenerationConfig(temperature=0.1, max_output_tokens=30),
+            )
+            response = await asyncio.to_thread(
+                simple_model.generate_content,
+                [
+                    "Classify this image into exactly ONE of these categories:\n"
+                    "- disaster_rescue (floods, rising water, natural disasters, stranded people, emergency rescue, collapsed buildings, wildfires)\n"
+                    "- medical (prescription, medical report, X-ray, lab test)\n"
+                    "- legal_contract (contract, agreement, legal document)\n"
+                    "- bill_utility (utility bill, invoice, electricity, water bill)\n"
+                    "- receipt_invoice (store receipt, payment receipt)\n"
+                    "- scam_message (phishing, fraud SMS screenshot)\n"
+                    "- screenshot_ui (mobile app screenshot, website screenshot, error message)\n"
+                    "- government_document (passport, ID card, official government form)\n"
+                    "- unknown (none of the above)\n\n"
+                    "Reply with ONLY the category name, nothing else.",
+                    img,
+                ],
+            )
+            raw = (response.text or "unknown").strip().lower().split()[0]
+            return raw if raw in VALID_TYPES else "unknown"
+        except Exception as e:
+            print(f"[LLM] classify_visually failed: {e}")
+            return "unknown"
 
     async def generate_title(self, text: str, doc_type: str, language: str = "en") -> str:
         """Generate a short human-readable title for the document."""

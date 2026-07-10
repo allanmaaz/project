@@ -122,12 +122,31 @@ class AnalysisService:
                     filename=upload.original_filename or "",
                 )
 
+                # If OCR text is empty/short AND file is an image → use Gemini vision
+                # to classify the image type (flood photo, accident, etc.)
+                is_image = upload.file_type.startswith("image/")
+                if classification.document_type == "unknown" and is_image and len(extracted_text.strip()) < 30:
+                    try:
+                        print(f"[Analysis] OCR empty for image — running visual classification")
+                        visual_type = await llm.classify_visually(file_bytes, upload.file_type)
+                        if visual_type != "unknown":
+                            print(f"[Analysis] Visual classifier detected: {visual_type}")
+                            classification.document_type = visual_type
+                    except Exception as ve:
+                        print(f"[Analysis] Visual classification failed: {ve}")
+
                 # ── Step 6: Run domain pipeline ──────────────────────────
                 pipeline_class = PIPELINE_MAP.get(
                     classification.document_type, ScreenshotPipeline
                 )
                 pipeline = pipeline_class(llm)
-                pipeline_result_obj = await pipeline.run(extracted_text, output_language)
+                # Pass image bytes for image uploads so pipeline can do visual analysis
+                img_bytes = file_bytes if is_image else None
+                img_mime = upload.file_type if is_image else None
+                pipeline_result_obj = await pipeline.run(
+                    extracted_text, output_language,
+                    image_bytes=img_bytes, mime_type=img_mime
+                )
                 pipeline_result = pipeline_result_obj.model_dump()
                 pipeline_result["extracted_text"] = extracted_text
                 pipeline_result["document_type"] = classification.document_type

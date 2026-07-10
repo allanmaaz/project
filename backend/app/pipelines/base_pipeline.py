@@ -10,7 +10,13 @@ class BasePipeline(ABC):
         self.llm = llm
 
     @abstractmethod
-    async def run(self, text: str, language: str) -> PipelineResult:
+    async def run(
+        self,
+        text: str,
+        language: str,
+        image_bytes: bytes = None,
+        mime_type: str = None,
+    ) -> PipelineResult:
         """Run the domain-specific analysis pipeline."""
         ...
 

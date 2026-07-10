@@ -4,7 +4,7 @@ from app.schemas.analysis import PipelineResult
 
 
 class ScamPipeline(BasePipeline):
-    async def run(self, text: str, language: str) -> PipelineResult:
+    async def run(self, text: str, language: str, image_bytes: bytes = None, mime_type: str = None) -> PipelineResult:
         prompt = get_scam_prompt(language)
         raw, token_usage = await self.llm.analyze(prompt, text, language)
         raw = self._enrich_result(raw, text)
