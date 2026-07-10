@@ -1,12 +1,13 @@
 """
-VisionService — YOLOv8s object detection optimized for Intel CPU (no GPU required).
+VisionService — YOLOv9c object detection optimized for Intel CPU (no GPU required).
 
-Uses YOLOv8s (small) — significant accuracy upgrade over nano:
-  - ~22MB model file, auto-downloads on first use
-  - ~5-8 seconds per image on Intel i5 (CPU-only)
+Uses YOLOv9c (compact) — major upgrade over YOLOv8:
+  - ~51MB model file, auto-downloads on first use
+  - ~8-15 seconds per image on Intel i5 (CPU-only)
   - 80 COCO classes: person, car, truck, boat, fire, etc.
-  - mAP50-95: 48.0 vs 37.3 for YOLOv8n — detects crowds, small objects
-  - imgsz=640 (standard YOLO resolution — detects small/distant people)
+  - mAP50: 69.0% vs 52.9% YOLOv8s — new GELAN + PGI architecture
+  - Dramatically better at crowded scenes, overlapping objects, small people
+  - imgsz=640 (standard YOLO resolution)
 
 NOTE: SAM segmentation skipped — requires GPU (too slow on Intel CPU ~30s/image).
 Gemini Vision handles deep visual analysis; YOLO handles fast object counting.
@@ -106,23 +107,24 @@ class VisionService:
     def _get_yolo(cls):
         if cls._yolo_model is None:
             from ultralytics import YOLO
-            # YOLOv8s — small model: 2x better mAP than nano, still CPU-viable
-            # Auto-downloads ~22MB on first use
-            cls._yolo_model = YOLO("yolov8s.pt")
-            logger.info("[Vision] YOLOv8s loaded on CPU")
+            # YOLOv9c — compact model: 69.0% mAP50, GELAN+PGI architecture
+            # Requires ultralytics >= 8.1.0 (we have 8.4.92) ✅
+            # Auto-downloads ~51MB on first use
+            cls._yolo_model = YOLO("yolov9c.pt")
+            logger.info("[Vision] YOLOv9c loaded on CPU")
         return cls._yolo_model
 
     async def detect(
         self,
         image_bytes: bytes,
         mime_type: str = "image/jpeg",
-        run_sam: bool = False,   # ignored — SAM disabled on Intel CPU
-        conf_threshold: float = 0.22,  # lower = catch more distant/small people
+        run_sam: bool = False,
+        conf_threshold: float = 0.22,
     ) -> dict:
         """
-        Run YOLOv8s on image. Returns detections with bounding boxes + counts.
+        Run YOLOv9c on image. Returns detections with bounding boxes + counts.
         Runs in a thread pool so it doesn't block the async event loop.
-        ~5-8 seconds on Intel i5 (accuracy > speed for disaster analysis).
+        ~8-15 seconds on Intel i5 (accuracy >> speed for disaster analysis).
         """
         return await asyncio.to_thread(
             self._detect_sync, image_bytes, mime_type, False, conf_threshold
@@ -198,7 +200,7 @@ class VisionService:
             "groups": groups,
             "image_width": img_w,
             "image_height": img_h,
-            "model": "yolov8s",
+            "model": "yolov9c",
             "total_objects": len(detections),
         }
 
