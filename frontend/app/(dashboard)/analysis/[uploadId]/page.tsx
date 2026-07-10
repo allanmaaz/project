@@ -136,7 +136,7 @@ export default function AnalysisPage() {
         {/* Left Side (lg: 8 cols) */}
         <div className="lg:col-span-8 space-y-6">
           {activeTab === "vision" && visionData ? (
-            <div className="space-y-6">
+          <div className="space-y-6">
               {/* Video Timeline Scrubber */}
               {visionData.has_video && visionData.video_detections ? (
                 <VideoFramePlayer
@@ -147,17 +147,17 @@ export default function AnalysisPage() {
                   videoHeight={visionData.video_detections.video_height || 360}
                 />
               ) : (
-                /* Static Image Bounding Box Canvas */
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
-                  <div className="md:col-span-8">
-                    <DetectionViewer
-                      imageUrl={rawFileUrl}
-                      detections={visionData.detections?.detections || []}
-                      hoveredIndex={hoveredIndex}
-                      setHoveredIndex={setHoveredIndex}
-                    />
-                  </div>
-                  <div className="md:col-span-4 bg-bg-sunken/25 p-4 rounded-3xl border border-border">
+                /* Static Image — full width viewer, panel below */
+                <div className="space-y-5">
+                  {/* Full-width detection map */}
+                  <DetectionViewer
+                    imageUrl={rawFileUrl}
+                    detections={visionData.detections?.detections || []}
+                    hoveredIndex={hoveredIndex}
+                    setHoveredIndex={setHoveredIndex}
+                  />
+                  {/* Detection panel — full width below image */}
+                  <div className="bg-bg-elevated/50 border border-border rounded-3xl p-5">
                     <DetectionPanel
                       detections={visionData.detections?.detections || []}
                       hoveredIndex={hoveredIndex}

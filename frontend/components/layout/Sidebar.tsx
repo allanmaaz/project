@@ -40,9 +40,22 @@ export default function Sidebar() {
     };
     fetchUser();
     
-    // Load active provider from local storage
+    // Load active provider from local storage — but verify Ollama is reachable first
     if (typeof window !== "undefined") {
-      setProvider(window.localStorage.getItem("llm-provider") || "gemini");
+      const saved = window.localStorage.getItem("llm-provider") || "gemini";
+      if (saved === "ollama") {
+        // Health-check Ollama before trusting the saved value
+        fetch("http://localhost:11434/api/tags", { signal: AbortSignal.timeout(1500) })
+          .then(() => setProvider("ollama"))
+          .catch(() => {
+            // Ollama not running — silently fall back to Gemini
+            window.localStorage.setItem("llm-provider", "gemini");
+            window.dispatchEvent(new Event("llm-provider-changed"));
+            setProvider("gemini");
+          });
+      } else {
+        setProvider("gemini");
+      }
     }
     
     // Listen for custom Cmd+K key combo for command palette
