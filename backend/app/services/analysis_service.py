@@ -194,6 +194,22 @@ class AnalysisService:
                         video_data = await video_svc.process_video(file_bytes, vision)
                         print(f"[Vision] Video: {video_data.get('sampled_frames')} frames, peaks: {video_data.get('aggregate_summary')}")
                         classification.document_type = "disaster_rescue"  # videos default to scene analysis
+                        
+                        # Extract thumbnail grid bytes to upload separately (bytes are not JSON-serializable)
+                        grid_bytes = video_data.pop("thumbnail_grid", None)
+                        if grid_bytes:
+                            grid_path = f"thumbnails/{upload.user_id}/{upload_id}_grid.jpg"
+                            try:
+                                self.supabase.storage.from_("thumbnails").upload(
+                                    grid_path, grid_bytes,
+                                    {"content-type": "image/jpeg", "upsert": "true"},
+                                )
+                                grid_url = self.supabase.storage.from_("thumbnails").get_public_url(grid_path)
+                                video_data["thumbnail_grid_url"] = grid_url
+                                print(f"[Vision] Video thumbnail grid uploaded to: {grid_url}")
+                            except Exception as grid_err:
+                                print(f"[Vision] Video grid upload failed: {grid_err}")
+
                         await db.execute(
                             update(Upload).where(Upload.id == upload_id)
                             .values(video_frame_count=video_data.get("frame_count", 0))
