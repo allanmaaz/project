@@ -25,6 +25,6 @@ redis
 psutil
 gunicorn
 # Vision Intelligence
-ultralytics>=8.2.0
+ultralytics>=8.4.93
 opencv-python-headless>=4.8.0
 numpy>=1.24.0
